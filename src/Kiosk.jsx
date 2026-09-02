@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { DrawingUtils, GestureRecognizer } from "@mediapipe/tasks-vision";
 import { useGestureRecognizer } from "./useGestureRecognizer.js";
 import { WAVE, makeWaveTracker, isOpenHand } from "./wave.js";
+import { rateLabel } from "./useCamera.js";
+import { FLY_DEAD, FLY_FULL, DIAL_DEAD, DIAL_SPAN } from "./useViewGestures.js";
 
 // Always-on camera. Draws hand skeletons, recognised gestures, the navigate
 // overlays and the current caption; reports held gestures and per-frame hand
@@ -14,10 +16,13 @@ import { WAVE, makeWaveTracker, isOpenHand } from "./wave.js";
 //   note      optional explanation under the hint
 //   controls  [[you do, it does, key], ...] rows listed under the hint; key is the
 //             gesture (or "pan", "zoom") the row stands for
-//   live      "pan" | "zoom" | null, what the sky is doing right now (navigate mode)
+//   live      "point" | "pan" | "zoom" | "fly" | "time" | null, what the sky is doing right now
+//   liveLabel optional caption for it (e.g. "Aiming at Mars")
+//   overlayRef ref to { fly, dial } from useViewGestures, drawn over the hand
 //   viewRef   ref to the camera state ({ scale }), read for the zoom badge
 //   event     { key, label, at } the control that just fired; captioned for FIRED_MS
-//   gestures  gesture names that are active in this mode (drawn yellow, hold pill)
+//   gestures  gesture names that are held in this mode (drawn yellow, hold pill)
+//   liveGestures gesture names that drive the sky continuously in this mode (drawn yellow)
 //   onGesture(name), onHands(hands) every frame
 
 // The camera is shown mirrored, like a mirror. Spatial overlays are drawn in
@@ -39,14 +44,14 @@ const DEFAULT_MIN_SCORE = 0.6;
 export const minScore = (name) => MIN_SCORES[name] ?? DEFAULT_MIN_SCORE;
 const COOLDOWN_MS = 1500;
 const FIRED_MS = 1100;
-const LIVE_LABEL = { pan: "Panning", zoom: "Zooming" };
+const LIVE_LABEL = { pan: "Panning", zoom: "Zooming", fly: "Flying", point: "Aiming", time: "Time" };
 
-export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, controls = [], gestures = [], onGesture, onHands, live = null, viewRef = null, event = null }) {
+export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, controls = [], gestures = [], liveGestures = [], onGesture, onHands, live = null, liveLabel = null, overlayRef: skyOverlayRef = null, viewRef = null, event = null }) {
   const videoRef = useRef(null);
   const overlayRef = useRef(null);
   const streamRef = useRef(null);
   const propsRef = useRef({});
-  propsRef.current = { mode, color, hint, controls, gestures, onGesture, onHands, live, viewRef, event };
+  propsRef.current = { mode, color, hint, controls, gestures, liveGestures, onGesture, onHands, live, liveLabel, skyOverlayRef, viewRef, event };
   const [held, setHeld] = useState(null); // gesture being held right now, lights its legend row
   const [fired, setFired] = useState(null); // control key that just fired, flashes its legend row
   const holdRef = useRef({ since: {}, armed: {}, lastFired: {} });
@@ -110,11 +115,14 @@ export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, cont
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (MIRROR) ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
-      const navigating = p.mode === "navigate";
-      const hands = drawHands(ctx, handResult, navigating ? [...p.gestures, "Grab", "Pointing_Up"] : p.gestures, navigating, waveRef.current, now);
+      const navigating = p.liveGestures.includes("Grab");
+      const hands = drawHands(ctx, handResult, [...p.gestures, ...p.liveGestures], navigating, waveRef.current, now);
       p.onHands?.(hands);
       const holding = updateHolds(hands, now, p);
       if (navigating) drawNavigate(ctx, hands, now, p.viewRef?.current?.scale || 1);
+      const sky = p.skyOverlayRef?.current || {};
+      if (p.live === "fly" && sky.fly) drawFly(ctx, sky.fly, now);
+      if (p.live === "time" && sky.dial) drawDial(ctx, sky.dial);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
 
       // One caption slot at the bottom. What the user is doing wins over what
@@ -123,7 +131,8 @@ export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, cont
       const action = (key) => p.controls.find((c) => c[2] === key)?.[1];
       if (firedAge < FIRED_MS) drawFired(ctx, p.event.label, firedAge);
       else if (holding) drawHolding(ctx, action(holding.name) || holding.name.replace("_", " "), holding.progress);
-      else if (p.live && LIVE_LABEL[p.live]) drawCaption(ctx, LIVE_LABEL[p.live], ACTIVE);
+      else if (p.live === "time" && sky.dial) drawCaption(ctx, rateLabel(sky.dial.rate) || "Time ×1", ACTIVE);
+      else if (p.live) drawCaption(ctx, p.liveLabel || LIVE_LABEL[p.live] || p.live, ACTIVE);
     };
 
     frameId = requestAnimationFrame(tick);
@@ -224,8 +233,9 @@ function drawHands(ctx, result, active, navigating = false, wave = null, now = 0
     const key = result.handedness?.[i]?.[0]?.categoryName || String(i);
     const open = isOpenHand(landmarks) || (g?.categoryName === "Open_Palm" && g.score >= minScore("Open_Palm"));
     const progress = waving ? wave.update(key, { t: now, x: landmarks[12].x * width, unit: handUnit(landmarks, width, height), open }) : 0;
-    // landmark 9 is the palm centre, 8 the index fingertip
-    return { gesture: g?.categoryName || "None", score: g?.score || 0, wave: progress, x: landmarks[9].x * width, y: landmarks[9].y * height, nx: landmarks[9].x, ny: landmarks[9].y, ntx: landmarks[8].x, nty: landmarks[8].y };
+    // landmark 9 is the palm centre, 8 the index fingertip; unit is the hand
+    // size as a fraction of the frame width, a stand-in for how close it is
+    return { gesture: g?.categoryName || "None", score: g?.score || 0, wave: progress, x: landmarks[9].x * width, y: landmarks[9].y * height, nx: landmarks[9].x, ny: landmarks[9].y, ntx: landmarks[8].x, nty: landmarks[8].y, unit: handUnit(landmarks, width, height) / width };
   });
   const hidden = navigating ? overlayHands(info) : new Set();
   result.landmarks.forEach((landmarks, i) => {
@@ -383,6 +393,109 @@ function drawNavigate(ctx, hands, now, scale) {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+// Overlay coordinates come from useViewGestures in sky space (mirrored); back
+// to the video frame for drawing in the mirrored transform.
+const toFrame = (x, width) => (MIRROR ? 1 - x : x) * width;
+
+// Upright text with a scrim, drawn from inside the mirrored transform.
+function uprightLabel(ctx, text, fx, fy, color = ACTIVE, size = 0) {
+  const { width } = ctx.canvas;
+  const font = size || Math.max(13, width / 40);
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.font = `700 ${font}px ${FONT}`;
+  ctx.textAlign = "center";
+  const x = MIRROR ? width - fx : fx;
+  const tw = ctx.measureText(text).width;
+  ctx.fillStyle = SCRIM;
+  ctx.beginPath();
+  ctx.roundRect(x - tw / 2 - font * 0.5, fy - font * 0.95, tw + font, font * 1.35, font * 0.7);
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, fy);
+  ctx.restore();
+}
+
+// Fly: the palm as a joystick. A faint dead-zone ring where the palm first
+// appeared, a dashed full-deflection ring, the stick from there to the palm
+// now, and a dot on the palm that swells as the hand comes closer (pushing
+// in) or shrinks as it goes back (pulling out).
+function drawFly(ctx, fly, now) {
+  const { width, height } = ctx.canvas;
+  const x0 = toFrame(fly.x0, width), y0 = fly.y0 * height;
+  const x = toFrame(fly.x, width), y = fly.y * height;
+  const lw = Math.max(2, width / 320);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(245,197,66,0.45)";
+  ctx.lineWidth = lw;
+  ctx.beginPath();
+  ctx.arc(x0, y0, FLY_DEAD * width, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([lw * 2, lw * 4]);
+  ctx.lineDashOffset = -now / 40;
+  ctx.beginPath();
+  ctx.arc(x0, y0, FLY_FULL * width, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = ACTIVE;
+  ctx.lineWidth = lw * 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x, y);
+  ctx.stroke();
+  const r = Math.max(8, width / 60) * (1 + 0.7 * fly.depth);
+  ctx.fillStyle = ACTIVE;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = SCRIM;
+  ctx.lineWidth = lw / 2;
+  ctx.stroke();
+  ctx.restore();
+  if (Math.abs(fly.depth) > 0.05) uprightLabel(ctx, fly.depth > 0 ? "Push in" : "Pull out", x, y - r - Math.max(10, width / 50));
+}
+
+// Time dial: a vertical track beside the hand. The middle band is 1x, the
+// top of the track is the fastest forward, the bottom the fastest rewind.
+function drawDial(ctx, dial) {
+  const { width, height } = ctx.canvas;
+  const x = toFrame(dial.x, width) + (MIRROR ? -1 : 1) * width * 0.16;
+  const top = (0.5 - DIAL_DEAD - DIAL_SPAN) * height;
+  const bottom = (0.5 + DIAL_DEAD + DIAL_SPAN) * height;
+  const y = Math.min(bottom, Math.max(top, dial.y * height));
+  const lw = Math.max(3, width / 200);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(245,197,66,0.4)";
+  ctx.lineWidth = lw;
+  ctx.beginPath();
+  ctx.moveTo(x, top);
+  ctx.lineTo(x, bottom);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath();
+  ctx.moveTo(x, (0.5 - DIAL_DEAD) * height);
+  ctx.lineTo(x, (0.5 + DIAL_DEAD) * height);
+  ctx.stroke();
+  ctx.strokeStyle = ACTIVE;
+  ctx.lineWidth = lw * 2;
+  ctx.beginPath();
+  ctx.moveTo(x, height / 2);
+  ctx.lineTo(x, y);
+  ctx.stroke();
+  ctx.fillStyle = ACTIVE;
+  ctx.beginPath();
+  ctx.arc(x, y, lw * 2.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = SCRIM;
+  ctx.lineWidth = lw / 2;
+  ctx.stroke();
+  ctx.restore();
+  uprightLabel(ctx, "Faster", x, top - lw * 3, "rgba(255,255,255,0.85)");
+  uprightLabel(ctx, "Rewind", x, bottom + lw * 6, "rgba(255,255,255,0.85)");
 }
 
 // Lower-third caption pill: the live sky mode, a hold in progress, or the

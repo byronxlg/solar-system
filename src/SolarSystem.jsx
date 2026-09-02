@@ -31,7 +31,8 @@ const BELT_ROCKS = Array.from({ length: BELT_COUNT }, () => {
   return { r, a: beltRand() * Math.PI * 2, s: 0.08 + beltRand() * 0.12, al: 0.25 + beltRand() * 0.45 };
 });
 
-export default function SolarSystem({ camera, mode, onFrame }) {
+// pointerRef: from useViewGestures; the aiming cursor and its reticle.
+export default function SolarSystem({ camera, mode, pointerRef = null, onFrame }) {
   const canvasRef = useRef(null);
   const propsRef = useRef({});
   propsRef.current = { mode, onFrame };
@@ -39,17 +40,17 @@ export default function SolarSystem({ camera, mode, onFrame }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
-    const loadedAt = Date.now();
-    const t0 = performance.now();
-    let last = t0;
+    let last = performance.now();
     let frameId;
+    // last frame's camera, for the motion streaks
+    const prev = { x: 0, y: 0, scale: 1 };
+    const motion = { vx: 0, vy: 0, zs: 0 }; // screen px/s and log-zoom/s, smoothed
 
     const tick = () => {
       frameId = requestAnimationFrame(tick);
       const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
-      const t = (now - t0) / 1000;
       const wrap = canvas.parentElement;
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;
@@ -59,9 +60,20 @@ export default function SolarSystem({ camera, mode, onFrame }) {
         canvas.height = Math.round(h * dpr);
       }
       const size = { width: w, height: h };
-      const cam = camera.track(t, size, dt, loadedAt);
+      const cam = camera.track(size, dt, now);
+      const clock = camera.clockRef.current;
       const px = pxPerUnit(size, cam.scale);
-      const view = { w, h, px, cam, t, loadedAt, now };
+      // how fast the view is moving, eased so a streak does not flicker
+      if (dt > 0) {
+        const k = 1 - Math.exp(-dt * 12);
+        motion.vx += (((cam.x - prev.x) * px) / dt - motion.vx) * k;
+        motion.vy += (((cam.y - prev.y) * px) / dt - motion.vy) * k;
+        motion.zs += (Math.log(cam.scale / prev.scale) / dt - motion.zs) * k;
+      }
+      prev.x = cam.x;
+      prev.y = cam.y;
+      prev.scale = cam.scale;
+      const view = { w, h, px, cam, t: clock.t, loadedAt: clock.loadedAt, now, motion, rate: clock.rate };
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawSky(ctx, view);
@@ -73,11 +85,13 @@ export default function SolarSystem({ camera, mode, onFrame }) {
       const placed = drawPlanets(ctx, view);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawLabels(ctx, view, placed);
+      drawSpeed(ctx, view);
+      if (pointerRef?.current) drawPointer(ctx, view, pointerRef.current, placed);
       propsRef.current.onFrame?.(view);
     };
     frameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameId);
-  }, [camera]);
+  }, [camera.track, camera.clockRef, pointerRef]);
 
   return (
     <div className="sky-wrap">
@@ -86,26 +100,153 @@ export default function SolarSystem({ camera, mode, onFrame }) {
   );
 }
 
-function drawSky(ctx, { w, h, cam, now, px }) {
+// Stars: parallax against the camera (wrapped), a touch of radial parallax
+// with zoom so pushing in feels like moving forward, and streaks when the
+// view is moving fast, so a flight reads as flying.
+const STAR_PAN = 0.02; // star travel per px of camera travel, times depth
+const STAR_ZOOM = 0.06; // radial spread per unit of log zoom, times depth
+const STREAK_S = 0.5; // how much of a second of motion a streak trails
+const STREAK_MAX = 140;
+function drawSky(ctx, { w, h, cam, now, px, motion }) {
   const g = ctx.createRadialGradient(w * 0.5, h * 0.5, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.75);
   g.addColorStop(0, "#131a33");
   g.addColorStop(0.6, "#0b0e1a");
   g.addColorStop(1, "#05060c");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
-  // stars: parallax against the camera, wrapped, twinkling gently
-  const ox = -cam.x * px * 0.02;
-  const oy = -cam.y * px * 0.02;
+  const ox = -cam.x * px * STAR_PAN;
+  const oy = -cam.y * px * STAR_PAN;
+  const spread = Math.log(cam.scale) * STAR_ZOOM;
+  const cx = w / 2, cy = h / 2;
+  ctx.lineCap = "round";
   for (const s of STARS) {
-    const x = (((s.u * w + ox * s.z) % w) + w) % w;
-    const y = (((s.v * h + oy * s.z) % h) + h) % h;
+    const bx = (((s.u * w + ox * s.z) % w) + w) % w;
+    const by = (((s.v * h + oy * s.z) % h) + h) % h;
+    const x = bx + (bx - cx) * spread * s.z;
+    const y = by + (by - cy) * spread * s.z;
     const tw = 0.7 + 0.3 * Math.sin(now / 900 + s.tw);
     const r = s.z * 1.3;
-    ctx.fillStyle = `rgba(226,232,255,${(0.35 + 0.55 * s.z) * tw})`;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
+    const alpha = (0.35 + 0.55 * s.z) * tw;
+    // the star's motion on screen this instant, trailed back STREAK_S
+    let mx = (-motion.vx * STAR_PAN + (x - cx) * motion.zs * STAR_ZOOM) * s.z * STREAK_S;
+    let my = (-motion.vy * STAR_PAN + (y - cy) * motion.zs * STAR_ZOOM) * s.z * STREAK_S;
+    const len = Math.hypot(mx, my);
+    if (len > 1.5) {
+      if (len > STREAK_MAX) {
+        mx *= STREAK_MAX / len;
+        my *= STREAK_MAX / len;
+      }
+      ctx.strokeStyle = `rgba(226,232,255,${Math.min(1, alpha * (1 + len / 40))})`;
+      ctx.lineWidth = r * 1.6;
+      ctx.beginPath();
+      ctx.moveTo(x - mx, y - my);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = `rgba(226,232,255,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
+}
+
+// Speed: the edges darken as the view moves fast, like a cockpit window.
+function drawSpeed(ctx, { w, h, motion }) {
+  const speed = Math.min(1, Math.hypot(motion.vx, motion.vy) / 2500 + Math.abs(motion.zs) / 5);
+  if (speed < 0.03) return;
+  const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.72);
+  g.addColorStop(0, "rgba(5,6,12,0)");
+  g.addColorStop(1, `rgba(5,6,12,${0.55 * speed})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+}
+
+// The aiming cursor: a soft dot where the finger points, and on a body a
+// reticle that fills clockwise over the dwell, then bursts when it fires.
+function drawPointer(ctx, { w, h, now, cam, px }, pointer, placed) {
+  const { x, y, target, progress, firedAt } = pointer;
+  // where the target is on screen this frame
+  let tx = null, ty = null, tr = 0;
+  if (target !== null) {
+    if (target === 0) {
+      tx = w / 2 - cam.x * px;
+      ty = h / 2 - cam.y * px;
+      tr = drawRadius(BODIES[0]) * px;
+    } else {
+      const p = placed.find((q) => q.index === target);
+      if (p) {
+        tx = p.sx;
+        ty = p.sy;
+        tr = p.r;
+      }
+    }
+  }
+  ctx.save();
+  ctx.lineCap = "round";
+  // cursor
+  const soft = ctx.createRadialGradient(x, y, 0, x, y, 22);
+  soft.addColorStop(0, "rgba(245,197,66,0.35)");
+  soft.addColorStop(1, "rgba(245,197,66,0)");
+  ctx.fillStyle = soft;
+  ctx.beginPath();
+  ctx.arc(x, y, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f5c542";
+  ctx.beginPath();
+  ctx.arc(x, y, 4, 0, Math.PI * 2);
+  ctx.fill();
+  const age = now - firedAt;
+  if (tx !== null) {
+    const R = Math.max(22, tr + 14);
+    // four rotating ticks
+    ctx.strokeStyle = "rgba(245,197,66,0.8)";
+    ctx.lineWidth = 2;
+    const rot = now / 1400;
+    for (let i = 0; i < 4; i++) {
+      const a = rot + (i * Math.PI) / 2;
+      ctx.beginPath();
+      ctx.moveTo(tx + Math.cos(a) * (R + 4), ty + Math.sin(a) * (R + 4));
+      ctx.lineTo(tx + Math.cos(a) * (R + 12), ty + Math.sin(a) * (R + 12));
+      ctx.stroke();
+    }
+    // the dwell ring filling clockwise from the top
+    ctx.strokeStyle = "rgba(245,197,66,0.3)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(tx, ty, R, 0, Math.PI * 2);
+    ctx.stroke();
+    if (progress > 0) {
+      ctx.strokeStyle = "#f5c542";
+      ctx.beginPath();
+      ctx.arc(tx, ty, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+      ctx.stroke();
+    }
+    // name above
+    const font = 14;
+    ctx.font = `700 ${font}px ${FONT}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const label = progress >= 1 ? `Flying to ${pointer.name}` : pointer.name;
+    const tw = ctx.measureText(label).width;
+    const ly = ty - R - 22;
+    ctx.fillStyle = "#f5c542";
+    ctx.beginPath();
+    ctx.roundRect(tx - tw / 2 - 9, ly - 11, tw + 18, 22, 11);
+    ctx.fill();
+    ctx.fillStyle = INK;
+    ctx.fillText(label, tx, ly + 1);
+  }
+  // burst when it fired
+  if (age < 700 && tx !== null) {
+    const k = age / 700;
+    ctx.strokeStyle = `rgba(245,197,66,${(1 - k) * 0.8})`;
+    ctx.lineWidth = 3 * (1 - k) + 1;
+    ctx.beginPath();
+    ctx.arc(tx, ty, Math.max(22, tr + 14) + k * 90, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawOrbits(ctx, { px }) {
