@@ -17,11 +17,13 @@ const KEYS = { ArrowRight: "Thumb_Up", ArrowLeft: "Thumb_Down", n: TWO_PALMS, t:
 // gesture or the live sky mode ("pan"/"zoom") the row stands for, so the
 // kiosk can light the row and caption the video while it happens.
 export const ACCENT = { sea: "#3b7fc4", teal: "#2f8f83", amber: "#d9931f" };
+// `live` lists the continuous controls (sky modes) the kiosk should light hands for.
 const UI = {
   browse: {
     title: "Main view", color: ACCENT.sea,
     hint: "Show a hand to the camera",
     controls: [
+      ["Point at a planet, hold", "Fly there", "point"],
       ["Hold a thumb up", "Fly to the next planet", "Thumb_Up"],
       ["Hold a thumb down", "Fly to the previous planet", "Thumb_Down"],
       ["Hold two open palms", "Navigate freely", TWO_PALMS],
@@ -29,16 +31,21 @@ const UI = {
       ["Hold a fist", "Back to the whole system", "Closed_Fist"],
     ],
     gestures: [WAVE, TWO_PALMS, "Thumb_Up", "Thumb_Down", "Closed_Fist"],
+    live: ["Pointing_Up"],
   },
   navigate: {
     title: "Navigate", color: ACCENT.teal,
     hint: "Move the sky with your hand",
     controls: [
+      ["Open palm, move it", "Fly. Closer pushes in, further pulls out", "fly"],
+      ["Point at a planet, hold", "Fly there", "point"],
       ["Touch index and thumb, move", "Pan", "pan"],
       ["Pinch two pointed fingers", "Zoom", "zoom"],
+      ["Two fingers up, raise or lower", "Time: up runs faster, down rewinds", "time"],
       ["Hold a fist", "Back to main view", "Closed_Fist"],
     ],
     gestures: ["Closed_Fist"],
+    live: ["Open_Palm", "Pointing_Up", "Grab", "Victory"],
   },
   tour: {
     title: "Tour", color: ACCENT.amber,
@@ -50,8 +57,11 @@ const UI = {
   },
 };
 
-// camera: from useCamera. onHands: per-frame hands while navigating.
-export default function Controls({ camera, onHands, skyMode = null, onMode }) {
+// camera: from useCamera. onHands: per-frame hands (every mode; App decides
+// what they do). live / liveLabel: what the sky is doing right now, for the
+// kiosk's caption and legend. overlayRef: joystick and dial positions for the
+// kiosk to draw.
+export default function Controls({ camera, onHands, live = null, liveLabel = null, overlayRef = null, onMode }) {
   const [mode, setMode] = useState("browse");
   const modeRef = useRef(mode);
   modeRef.current = mode;
@@ -142,7 +152,7 @@ export default function Controls({ camera, onHands, skyMode = null, onMode }) {
   const ui = UI[mode];
   uiRef.current = ui;
   const focused = camera.focus !== null ? BODIES[camera.focus] : null;
-  const hint = mode === "tour" ? (focused ? `Now passing ${focused.kind === "star" ? "the Sun" : focused.name}` : "Heading home") : mode === "browse" && focused ? `At ${focused.kind === "star" ? "the Sun" : focused.name}` : ui.hint;
+  const hint = mode === "tour" ? (focused ? `Now passing ${focused.kind === "star" ? "the Sun" : focused.name}` : "Heading home") : liveLabel ? liveLabel : mode === "browse" && focused ? `At ${focused.kind === "star" ? "the Sun" : focused.name}` : ui.hint;
   const note = mode === "tour" ? "Nine stops, from the Sun out to Neptune." : mode === "browse" && focused ? focused.tagline : null;
 
   return (
@@ -167,9 +177,12 @@ export default function Controls({ camera, onHands, skyMode = null, onMode }) {
         note={note}
         controls={ui.controls}
         gestures={ui.gestures}
+        liveGestures={ui.live || []}
         onGesture={handleGesture}
-        onHands={(hands) => mode === "navigate" && onHands?.(hands)}
-        live={mode === "navigate" ? skyMode : null}
+        onHands={onHands}
+        live={mode === "tour" ? null : live}
+        liveLabel={mode === "tour" ? null : liveLabel}
+        overlayRef={overlayRef}
         viewRef={camera.goalRef}
         event={event}
       />
