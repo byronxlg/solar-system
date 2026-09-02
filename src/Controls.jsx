@@ -10,6 +10,7 @@ import { BODIES, YEAR_S } from "./solar.js";
 //   navigate  grab pans, pinch zooms; Closed Fist (held) -> browse
 //   tour      flies from body to body every TOUR_MS; Thumb Up (held) skips ahead, Closed Fist (held) stops
 export const TOUR_MS = 9000;
+const KEYS = { ArrowRight: "Thumb_Up", ArrowLeft: "Thumb_Down", n: TWO_PALMS, t: WAVE, Escape: "Closed_Fist" };
 
 // Per mode: the situational line (hint), and one [you do, it does, key] row
 // per control, shown in the legend under the camera. `key` is the held
@@ -122,6 +123,20 @@ export default function Controls({ camera, onHands, skyMode = null, onMode }) {
   // dev hook: drive the flow from the console or tests, e.g. __kiosk.gesture("Thumb_Up")
   useEffect(() => {
     window.__kiosk = { mode, gesture: handleGesture, setMode };
+  });
+
+  // Keyboard fallback for a machine without a camera: each key stands in for
+  // one gesture and goes through the same handler.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const g = KEYS[e.key];
+      if (!g) return;
+      e.preventDefault();
+      handleGesture(g);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   });
 
   const ui = UI[mode];

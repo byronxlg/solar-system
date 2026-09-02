@@ -63,14 +63,23 @@ export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, cont
   }, [event]);
 
   useEffect(() => {
+    let cancelled = false; // StrictMode runs this twice in dev; the first stream must not outlive its cleanup
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("no camera access in this browser");
+      return;
+    }
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: false })
       .then((stream) => {
+        if (cancelled) return stream.getTracks().forEach((t) => t.stop());
         streamRef.current = stream;
         if (videoRef.current) videoRef.current.srcObject = stream;
       })
       .catch((err) => setCameraError(err.message));
-    return () => streamRef.current?.getTracks().forEach((t) => t.stop());
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
   }, []);
 
   // a mode change clears any hold in progress

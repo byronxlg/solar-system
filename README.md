@@ -54,6 +54,8 @@ detections and the `window.__view` / `__kiosk` hooks still drive the sky. See
     then back to the overview. Thumb Up skips ahead, Closed Fist stops.
 
 The controls table is in [docs/control-system.md](docs/control-system.md).
+Without a camera the arrow keys stand in for thumb up and down, `n` for two
+palms, `t` for a wave and `Esc` for a fist (`KEYS` in `src/Controls.jsx`).
 
 ## Deploying
 

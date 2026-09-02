@@ -302,13 +302,16 @@ function drawRings(ctx, b, r, lit, half) {
 
 // Screen-space labels: planet names beside their discs, moon names once
 // zoomed in. Never scaled with the world, so they stay readable.
-function drawLabels(ctx, { w, h, px }, placed) {
+function drawLabels(ctx, { w, h, px, cam }, placed) {
   const font = 13;
   ctx.font = `600 ${font}px ${FONT}`;
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   const taken = [];
-  const fits = (x, y, tw) => !taken.some((b) => x < b.x + b.w && x + tw > b.x && y < b.y + font && y + font > b.y);
+  // the Sun's disc counts as taken so Mercury's label does not sit on it
+  const sunR = drawRadius(BODIES[0]) * px * 1.15;
+  taken.push({ x: w / 2 - cam.x * px - sunR, y: h / 2 - cam.y * px - sunR, w: sunR * 2, h: sunR * 2 });
+  const fits = (x, y, tw) => !taken.some((b) => x < b.x + b.w && x + tw > b.x && y < b.y + (b.h ?? font) && y + font > b.y);
   for (const p of placed) {
     const tw = ctx.measureText(p.body.name).width;
     const gap = Math.max(8, p.r + 6);

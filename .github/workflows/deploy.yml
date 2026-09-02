@@ -33,6 +33,8 @@ jobs:
       # prebuild copies MediaPipe's wasm runtime into public/wasm
       - run: npm run build
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true # turns Pages on for the repo on the first run
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
