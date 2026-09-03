@@ -122,7 +122,7 @@ export const MALLETS = [
 // Gong size as a multiple of the base diameter. The gesture and the keys
 // work in this range.
 export const MIN_SIZE = 0.5;
-export const MAX_SIZE = 2.2;
+export const MAX_SIZE = 1.8;
 export const BASE_CM = { chau: 90, symphonic: 100, wind: 70, tibetan: 60, iron: 110, moon: 80 };
 
 export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));

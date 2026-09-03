@@ -8,7 +8,7 @@ import { layout } from "./useGong.js";
 //   each hand not in a hold pose                -> a mallet: the head follows the palm; swing it
 //                                                  fast at the gong and it strikes where the swing peaks.
 //                                                  Two hands are two mallets.
-//   two Pointing_Up hands                       -> resize the gong by the distance between the fingertips
+//   two Pointing_Up hands (adjust mode only)    -> resize the gong by the distance between the fingertips
 // A hand in a hold pose (thumb up or down, two fingers, open palm) is not a
 // mallet, so a hold does not also hit the gong.
 const MALLET_GAIN = 1.4; // palm travel amplified so the edge of the frame reaches the edge of the stage
@@ -96,9 +96,9 @@ export function useStrikeGestures(gong) {
   }
 
   // hands: [{ hand, gesture, score, x, y, tipX, tipY, unit }] normalised to the frame and already mirrored.
-  // size: the stage in pixels. Returns { live, label }.
-  const handleHands = useCallback((hands, size, now = performance.now()) => {
-    const fingers = hands.filter((h) => h.gesture === "Pointing_Up" && h.score >= minScore("Pointing_Up"));
+  // size: the stage in pixels. mode: resizing only happens in "adjust". Returns { live, label }.
+  const handleHands = useCallback((hands, size, now = performance.now(), mode = "play") => {
+    const fingers = mode === "adjust" ? hands.filter((h) => h.gesture === "Pointing_Up" && h.score >= minScore("Pointing_Up")) : [];
     if (fingers.length >= 2) {
       for (const id in handsRef.current) drop(id);
       const [a, b] = fingers;
