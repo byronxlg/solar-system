@@ -12,15 +12,22 @@ import * as audio from "./audio.js";
 //   phys:  swing (pendulum angle, radians), tilt (pushed back), rock (the
 //          plate rocking about the axis across the hit: direction and
 //          amount), shake (the stage jolting on a hard hit), flash, ripples,
-//          sparks, glints, popups, hits, lastHit
-//   mallets: one per holder, keyed by id ("Right", "Left" for hands,
+//          sparks, glints, hits, lastHit
+//   mallets: one per holder, keyed by id ("Left", "Right" for the arms,
 //          "mouse"): where the head is on the stage in pixels, its velocity
-//          in pixels per second, when it was last moved, and its recoil
+//          in pixels per second, when it was last moved, and its recoil. A
+//          body mallet (source "body") is not steered: it rests beside the
+//          gong on its side, cocks back as the arm speeds up (cock 0..1) and
+//          flies to the centre on a hit (hit 1, easing back to 0).
 
+// A body mallet's swing in: how long the head takes to come back to rest
+// after a hit, and how far it cocks back as the arm winds up, in radii.
+const HIT_MS = 380;
+const COCK_R = 0.22;
 
 export function useGong() {
   const selRef = useRef({ gong: 0, mallet: 0, size: 1, goalSize: 1 });
-  const physRef = useRef({ swing: 0, swingVel: 0, tilt: 0, tiltVel: 0, rockX: 0, rockY: 0, rock: 0, rockVel: 0, shakeX: 0, shakeY: 0, shake: 0, flash: 0, ripples: [], sparks: [], glints: [], popups: [], hits: 0, lastHit: null, damped: -Infinity });
+  const physRef = useRef({ swing: 0, swingVel: 0, tilt: 0, tiltVel: 0, rockX: 0, rockY: 0, rock: 0, rockVel: 0, shakeX: 0, shakeY: 0, shake: 0, flash: 0, ripples: [], sparks: [], glints: [], hits: 0, lastHit: null, damped: -Infinity });
   const malletsRef = useRef({});
   const sizeRef = useRef({ width: 800, height: 600 }); // the stage's size, kept by the stage
   const [gongIndex, setGongIndex] = useState(0);
@@ -64,7 +71,7 @@ export function useGong() {
   // The mallet held by `id`, made on first use.
   const mallet = useCallback((id, source = id) => {
     const ms = malletsRef.current;
-    if (!ms[id]) ms[id] = { id, source, x: 0, y: 0, vx: 0, vy: 0, at: -Infinity, recoil: 0 };
+    if (!ms[id]) ms[id] = { id, source, x: 0, y: 0, vx: 0, vy: 0, at: -Infinity, recoil: 0, hit: 0, cock: 0 };
     return ms[id];
   }, []);
 
@@ -103,10 +110,6 @@ export function useGong() {
     p.flash = Math.min(1, p.flash + 0.5 + s * 0.6);
     p.ripples.push({ x: dx / R, y: dy / R, at: now, strength: s });
     if (p.ripples.length > 12) p.ripples.shift();
-    if (source !== "bath") {
-      p.popups.push({ x, y, at: now, text: `${Math.round(s * 100)}%`, strength: s });
-      if (p.popups.length > 6) p.popups.shift();
-    }
     // glints: a hard hit throws light off the face
     if (s > 0.5) {
       const count = Math.round((s - 0.5) * 24);
@@ -174,18 +177,38 @@ export function useGong() {
     p.ripples = p.ripples.filter((r) => now - r.at < 2200 / (0.6 + r.strength));
     p.sparks = p.sparks.filter((s) => now - s.at < s.life);
     p.glints = p.glints.filter((s) => now - s.at < s.life);
-    p.popups = p.popups.filter((s) => now - s.at < 900);
     for (const s of p.sparks) {
       s.vy += 3.5 * dt;
       s.x += s.vx * dt;
       s.y += s.vy * dt;
     }
+    const geo = layout(sel.size, size);
     for (const id in malletsRef.current) {
       const m = malletsRef.current[id];
       m.recoil = Math.max(0, m.recoil - dt * 6);
       if (now - m.at > 4000) {
         delete malletsRef.current[id];
         continue;
+      }
+      if (m.source === "body") {
+        // rest beside the gong on its side, cock back with the arm, fly to
+        // the centre on a hit and ease back
+        const side = m.side || 1;
+        const rx = geo.cx + side * Math.min(geo.R * 1.3, size.width * 0.47 - geo.m * 0.06);
+        const ry = geo.cy + geo.R * 0.25;
+        const dx = geo.cx - rx, dy = geo.cy - ry;
+        const len = Math.hypot(dx, dy) || 1;
+        m.hit = Math.max(0, m.hit - dt * (1000 / HIT_MS));
+        const k = m.hit * m.hit;
+        const cock = (m.cock || 0) * (1 - k) * COCK_R * geo.R;
+        const nx = rx + dx * k - (dx / len) * cock;
+        const ny = ry + dy * k - (dy / len) * cock;
+        if (m.x || m.y) {
+          m.vx = m.vx + ((nx - m.x) / dt - m.vx) * 0.5;
+          m.vy = m.vy + ((ny - m.y) / dt - m.vy) * 0.5;
+        }
+        m.x = nx;
+        m.y = ny;
       }
       // a short trail of where the head has been, for the swoosh
       if (!m.trail) m.trail = [];

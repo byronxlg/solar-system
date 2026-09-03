@@ -11,30 +11,46 @@ import AppSwitcher from "../AppSwitcher.jsx";
 export default function App() {
   const gong = useGong();
   const gestures = useStrikeGestures(gong);
-  const [stage, setStage] = useState({ live: null, label: null }); // what the hands are doing to the gong right now
+  const [stage, setStage] = useState({ live: null, label: null }); // what the body and hands are doing to the gong right now
   const [mode, setMode] = useState("play");
   const modeRef = useRef("play");
+  const liveRef = useRef({ hands: null, pose: null }); // the latest from each source; a resize wins over a swing
+
+  function stageSize() {
+    const el = document.querySelector(".stage-wrap");
+    return el ? { width: el.clientWidth, height: el.clientHeight } : gong.sizeRef.current;
+  }
+  function showStage() {
+    const r = liveRef.current.hands || liveRef.current.pose || { live: null, label: null };
+    setStage((prev) => (prev.live === r.live && prev.label === r.label ? prev : r));
+  }
 
   function feedHands(hands, now) {
-    const el = document.querySelector(".stage-wrap");
-    const size = el ? { width: el.clientWidth, height: el.clientHeight } : gong.sizeRef.current;
-    const r = gestures.handleHands(
+    liveRef.current.hands = gestures.handleHands(
       hands.map((h) => {
         const x = h.nx ?? h.x;
         const tx = h.ntx ?? x;
         return { hand: h.hand || "Right", gesture: h.gesture, score: h.score ?? 1, x: MIRROR ? 1 - x : x, y: h.ny ?? h.y, tipX: MIRROR ? 1 - tx : tx, tipY: h.nty ?? h.ny ?? h.y, unit: h.unit ?? 0.2 };
       }),
-      size,
+      stageSize(),
       now,
       modeRef.current
     );
-    setStage((prev) => (prev.live === r.live && prev.label === r.label ? prev : r));
+    showStage();
+  }
+
+  // body: { left, right, unit, x, y } in raw frame coords from the kiosk, or null
+  function feedPose(body, now) {
+    const wrist = (w) => (w ? { x: MIRROR ? 1 - w.x : w.x, y: w.y, z: w.z || 0, vis: w.vis ?? 1 } : null);
+    liveRef.current.pose = gestures.handlePose(body ? { left: wrist(body.left), right: wrist(body.right), unit: body.unit } : null, stageSize(), now, modeRef.current);
+    showStage();
   }
 
   const handleMode = useCallback((m) => {
     modeRef.current = m;
     setMode(m);
     gestures.clear();
+    liveRef.current = { hands: null, pose: null };
     setStage((prev) => (prev.live === null && prev.label === null ? prev : { live: null, label: null }));
   }, [gestures]);
 
@@ -49,15 +65,17 @@ export default function App() {
     };
   }, [gong]);
 
-  // dev hook: __gong.strike(x, y, strength) in stage pixels, __gong.state()
+  // dev hook: __gong.strike(x, y, strength) in stage pixels, __gong.state(),
+  // __gong.swings() for each arm's speed; __view.hands / __view.body feed a
+  // frame in by hand
   useEffect(() => {
     window.__gong = {
       ...(window.__gong || {}), // the stage adds its own (pointer)
       strike: (x, y, strength = 0.7) => gong.strike({ x, y, strength, source: "dev" }),
       state: () => ({ ...gong.selRef.current, gong: GONGS[gong.selRef.current.gong].key, mallet: MALLETS[gong.selRef.current.mallet].key, cm: gong.cm, hits: gong.physRef.current.hits, lastHit: gong.physRef.current.lastHit, ringing: audio.ringing(), audio: audio.unlocked(), mode: modeRef.current }),
       phys: () => ({ ...gong.physRef.current }),
-      mallets: () => Object.fromEntries(Object.entries(gong.malletsRef.current).map(([k, m]) => [k, { ...m }])),
-      swings: () => Object.fromEntries(Object.entries(gestures.handsRef.current).map(([k, f]) => [k, { x: f.x, y: f.y, u: f.u, speed: f.speed, armed: f.armed }])),
+      mallets: () => Object.fromEntries(Object.entries(gong.malletsRef.current).map(([k, m]) => [k, { ...m, trail: undefined }])),
+      swings: () => Object.fromEntries(Object.entries(gestures.armsRef.current).map(([k, f]) => [k, { x: f.x, y: f.y, z: f.z, speed: f.speed, armed: f.armed }])),
       layout: () => {
         const el = document.querySelector(".stage-wrap");
         return { ...gong.sizeRef.current, ...(el ? { width: el.clientWidth, height: el.clientHeight } : {}) };
@@ -71,8 +89,9 @@ export default function App() {
       level: audio.level,
       peak: audio.peak,
       hands: feedHands,
+      body: feedPose,
     };
-    window.__view = { hands: feedHands };
+    window.__view = { hands: feedHands, body: feedPose };
   });
 
   const title = `${gong.gong.name} · ${gong.cm} cm`;
@@ -111,7 +130,7 @@ export default function App() {
         </article>
         )}
       </div>
-      <Controls gong={gong} onHands={feedHands} live={stage.live} liveLabel={stage.label} overlayRef={gestures.overlayRef} onMode={handleMode} />
+      <Controls gong={gong} onHands={feedHands} onPose={feedPose} live={stage.live} liveLabel={stage.label} overlayRef={gestures.overlayRef} onMode={handleMode} />
     </div>
   );
 }

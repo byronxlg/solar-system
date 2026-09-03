@@ -37,19 +37,21 @@ zoom, time) act every frame while the hand is in that pose.
 
 # Gong
 
-Playing is the whole of the main screen. Any hand not in a hold pose holds a
-mallet (two hands, two mallets). Held gestures fill a pill and fire once;
-strikes and resizing act every frame. Everything that changes the gong is in
-Adjust, behind one gesture, so a hand that is banging cannot change the gong
-by accident.
+Playing is the whole of the main screen. Swings come from the body model
+(the wrists), not the hands: each arm has a mallet on its side of the gong,
+and a swing strikes the centre. Where the hand is does not matter. Held
+gestures come from the hand model, fill a pill and fire once, and only count
+while the hand is still, so an arm mid-swing never fires one. Everything
+that changes the gong is in Adjust, behind one gesture, and nothing strikes
+there. A closed fist is the way back, as in the sky.
 
 ## Play
 
 | Control | Action | Built |
 |---|---|---|
-| Swing a hand over the gong (or push it at the camera) | Strike where the swing peaks; faster is louder, the rim is brighter | yes |
-| Two hands, each swung | Two mallets, one per hand; hits sit left or right in the stereo field | yes |
-| Open palm, hold | Damp the gong (everything ringing fades out) | yes |
+| Swing an arm (across, up, or at the camera) | Strike the centre where the swing peaks; faster is louder | yes |
+| Both arms swung | Two mallets, one per side; a hit from each | yes |
+| Open palm, hold still | Damp the gong (everything ringing fades out) | yes |
 | Two fingers up (Victory), hold | Adjust the gong and mallet | yes |
 
 ## Adjust
@@ -60,18 +62,19 @@ by accident.
 | Thumb down, hold | Previous gong | yes |
 | Two fingers up (Victory), hold | Next mallet | yes |
 | Two pointed fingers, pinch in or out | Resize the gong (50% to 180% of its base diameter) inside the fixed frame | yes |
-| Swing a hand | Try it (strikes work here too) | yes |
 | Two open palms, hold | Gong bath | yes |
-| Open palm, hold | Done, back to Play | yes |
+| Closed fist, hold | Back to Play | yes |
+| Swing an arm | Nothing: no strikes in Adjust | yes |
 
 ## Gong bath
 
 | Control | Action | Built |
 |---|---|---|
 | (wait) | A soft strike every 2 to 4 s, every fourth louder, now and then a pair or a roll of three; every eighth moves to the next gong and mallet | yes |
-| Swing a hand | Join in | yes |
+| Swing an arm | Join in | yes |
 | Thumb up, hold | Next gong | yes |
-| Open palm, hold | Stop the bath, back to Play | yes |
+| Open palm, hold | Damp it (the bath carries on) | yes |
+| Closed fist, hold | Stop the bath, back to Play | yes |
 
 ## Without a camera
 

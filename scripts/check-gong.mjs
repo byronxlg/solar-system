@@ -2,7 +2,8 @@
 // (`npx vite --port 5174 --strictPort`), then
 // `npm i --no-save playwright && node scripts/check-gong.mjs`.
 // Opens the page with ?nomodels and Chromium's fake camera, so the real kiosk
-// pipeline runs on synthesised hands (window.__fake, see src/devFlags.js).
+// pipeline runs on synthesised hands and bodies (window.__fake and
+// window.__fakeBody, see src/devFlags.js).
 // Screenshots go to $OUT (default: the OS temp dir). Exit code 1 on any failure.
 import os from "node:os";
 import { chromium } from "playwright";
@@ -106,70 +107,97 @@ const state = () => ev(() => window.__gong.state());
   await sleep(200);
 }
 
-// B. A hand swings at the gong: the mallet follows the palm and the peak of
-// the swing strikes. Fake hands are raw video coords (mirrored on screen).
+// B. An arm swings: the body model's wrist speed peaks and the mallet on
+// that side strikes the centre. Where the hand is does not matter. Fake
+// bodies are raw video coords (mirrored on screen): the person's right
+// wrist hangs on the left of the raw frame.
+const body = (right = null, left = null) => page.evaluate((b) => { window.__fakeBody = b; }, { x: 0.5, y: 0.4, size: 0.3, right, left });
+const nobody = () => page.evaluate(() => { window.__fakeBody = null; });
+const HANG_R = { x: 0.32, y: 0.76, z: 0 };
+const HANG_L = { x: 0.68, y: 0.76, z: 0 };
 {
   const before = (await state()).hits;
-  // hand comes in from the right of the frame (left on screen) and stops on the gong
-  const xs = [0.15, 0.18, 0.24, 0.32, 0.4, 0.46, 0.5, 0.5, 0.5, 0.5];
-  for (const x of xs) {
-    await fake([{ gesture: "None", score: 0.5, x, y: 0.5, size: 0.2 }]);
+  await body(HANG_R, HANG_L);
+  await sleep(300);
+  const ms0 = await ev(() => window.__gong.mallets());
+  check("a body in view holds two mallets", ms0.Right?.source === "body" && ms0.Left?.source === "body", JSON.stringify(Object.keys(ms0)));
+  check("mallets rest either side of the gong", ms0.Left.x < ms0.Right.x && ms0.Left.side === -1 && ms0.Right.side === 1, `left=${ms0.Left.x?.toFixed(0)} right=${ms0.Right.x?.toFixed(0)}`);
+  check("a still body does not strike", (await state()).hits === before);
+  await page.screenshot({ path: `${OUT}/g2a-body.png` });
+  // the right arm swings up across the body and stops
+  const swing = [[0.32, 0.76], [0.34, 0.72], [0.38, 0.64], [0.43, 0.55], [0.48, 0.47], [0.52, 0.42], [0.54, 0.4], [0.54, 0.4], [0.54, 0.4], [0.54, 0.4]];
+  for (const [x, y] of swing) {
+    await body({ x, y, z: 0 }, HANG_L);
     await sleep(33);
   }
   await sleep(250);
   const s = await state();
-  const ms = await ev(() => window.__gong.mallets());
-  check("mallet follows the hand", ms.Right?.source === "hand" && ms.Right.at > 0, JSON.stringify(Object.keys(ms)));
-  check("swing strikes the gong", s.hits === before + 1 && s.lastHit?.source === "hand", `hits=${s.hits} source=${s.lastHit?.source}`);
+  check("a swing strikes the gong", s.hits === before + 1 && s.lastHit?.source === "body", `hits=${s.hits} source=${s.lastHit?.source}`);
+  check("the hit lands on the centre", s.lastHit && s.lastHit.r < 0.12, `r=${s.lastHit?.r?.toFixed(2)}`);
   const hud = await ev(() => [...document.querySelectorAll(".sky-hud .pill")].map((p) => p.textContent));
   check("hud says hit", /Hit \d+%/.test(hud[1]), hud[1]);
   await page.screenshot({ path: `${OUT}/g2-swing.png` });
-  // a still hand does not keep hitting
+  // a still arm does not keep hitting
   await sleep(600);
-  check("a still hand does not strike again", (await state()).hits === before + 1);
+  check("a still arm does not strike again", (await state()).hits === before + 1);
   // a slow drift does not strike
-  for (const x of [0.5, 0.51, 0.52, 0.53, 0.54, 0.55]) {
-    await fake([{ gesture: "None", score: 0.5, x, y: 0.5, size: 0.2 }]);
+  for (const x of [0.54, 0.55, 0.56, 0.57, 0.58, 0.59]) {
+    await body({ x, y: 0.4, z: 0 }, HANG_L);
     await sleep(60);
   }
   await sleep(200);
   check("a slow drift does not strike", (await state()).hits === before + 1, `hits=${(await state()).hits}`);
-  // a hand pushing toward the camera (growing) strikes too
-  for (const size of [0.2, 0.22, 0.26, 0.31, 0.36, 0.4, 0.4, 0.4]) {
-    await fake([{ gesture: "None", score: 0.5, x: 0.5, y: 0.5, size }]);
+  // a punch at the camera (the wrist's z coming toward the viewer) strikes too
+  for (const z of [0, -0.05, -0.15, -0.3, -0.45, -0.55, -0.6, -0.6, -0.6]) {
+    await body({ x: 0.59, y: 0.4, z }, HANG_L);
     await sleep(33);
   }
   await sleep(250);
-  check("pushing at the gong strikes", (await state()).hits === before + 2, `hits=${(await state()).hits}`);
-  await fake([]);
-  await sleep(200);
-  // a thumb-up hand is a hold, not a mallet: moving it does not strike
-  for (const x of [0.15, 0.25, 0.35, 0.45, 0.5, 0.5, 0.5]) {
-    await fake([{ gesture: "Thumb_Up", score: 0.9, x, y: 0.5, size: 0.2 }]);
-    await sleep(33);
-  }
-  await sleep(200);
-  check("a thumb up hand does not strike", (await state()).hits === before + 2);
-  await fake([]);
+  check("a punch at the camera strikes", (await state()).hits === before + 2, `hits=${(await state()).hits}`);
+  await nobody();
   await sleep(400);
-  // two hands are two mallets: both swing in from the sides and both strike
+  // both arms swung together are two hits
   const h2 = (await state()).hits;
-  const steps = [[0.1, 0.9], [0.14, 0.86], [0.2, 0.8], [0.28, 0.72], [0.36, 0.64], [0.42, 0.58], [0.45, 0.55], [0.45, 0.55], [0.45, 0.55]];
-  for (const [xr, xl] of steps) {
-    await fake([{ gesture: "None", score: 0.5, x: xr, y: 0.5, size: 0.2 }, { gesture: "None", score: 0.5, x: xl, y: 0.5, size: 0.2, hand: "Left" }]);
+  const both = [[0.32, 0.76, 0.68, 0.76], [0.35, 0.7, 0.65, 0.7], [0.4, 0.6, 0.6, 0.6], [0.45, 0.5, 0.55, 0.5], [0.49, 0.43, 0.51, 0.43], [0.5, 0.4, 0.5, 0.4], [0.5, 0.4, 0.5, 0.4], [0.5, 0.4, 0.5, 0.4], [0.5, 0.4, 0.5, 0.4]];
+  for (const [rx, ry, lx, ly] of both) {
+    await body({ x: rx, y: ry, z: 0 }, { x: lx, y: ly, z: 0 });
     await sleep(33);
   }
   await sleep(250);
   const two = await ev(() => ({ s: window.__gong.state(), m: window.__gong.mallets() }));
-  check("two hands are two mallets", two.m.Right?.source === "hand" && two.m.Left?.source === "hand", JSON.stringify(Object.keys(two.m)));
-  check("both hands strike", two.s.hits === h2 + 2, `hits ${h2} -> ${two.s.hits}`);
+  check("both arms strike", two.s.hits === h2 + 2, `hits ${h2} -> ${two.s.hits}`);
   const phys = await ev(() => window.__gong.phys());
-  check("hits rock and jolt the plate", Math.abs(phys.rockVel) + Math.abs(phys.rock) > 0.01 && phys.popups.length >= 2, `rock=${phys.rock.toFixed(3)} popups=${phys.popups.length}`);
+  check("hits push the plate back and no popup is drawn", Math.abs(phys.tiltVel) + Math.abs(phys.tilt) > 0.01 && phys.popups === undefined, `tilt=${phys.tilt.toFixed(3)}`);
   const hud2 = await ev(() => document.querySelectorAll(".sky-hud .pill")[1].textContent);
   await sleep(800);
   const hud3 = await ev(() => document.querySelectorAll(".sky-hud .pill")[1].textContent);
-  check("hud names two mallets once the hit caption clears", hud3 === "Two mallets over the gong", `${hud2} / ${hud3}`);
-  await page.screenshot({ path: `${OUT}/g2b-two-hands.png` });
+  check("hud names both mallets once the hit caption clears", hud3 === "Both mallets ready", `${hud2} / ${hud3}`);
+  await page.screenshot({ path: `${OUT}/g2b-two-arms.png` });
+  // in Adjust an arm does nothing, and the mallets are put down
+  await ev(() => window.__kiosk.setMode("adjust"));
+  await sleep(150);
+  const h3 = (await state()).hits;
+  for (const [x, y] of swing) {
+    await body({ x, y, z: 0 }, HANG_L);
+    await sleep(33);
+  }
+  await sleep(250);
+  const adj = await ev(() => ({ s: window.__gong.state(), m: window.__gong.mallets() }));
+  check("a swing in Adjust does not strike", adj.s.hits === h3, `hits ${h3} -> ${adj.s.hits}`);
+  check("no body mallets in Adjust", !Object.values(adj.m).some((m) => m.source === "body" && m.at > 0), JSON.stringify(Object.keys(adj.m)));
+  await ev(() => window.__kiosk.setMode("play"));
+  await nobody();
+  // a hand swinging with an open palm does not damp: holds need a still hand
+  await sleep(1600); // past the hold cooldown
+  const lay = await ev(() => window.__gong.layout());
+  await page.mouse.click(lay.width / 2, lay.height * 0.54);
+  await sleep(100);
+  check("ringing before the swinging palm", (await state()).ringing > 0);
+  for (let i = 0; i < 30; i++) {
+    await fake([{ gesture: "Open_Palm", score: 0.8, x: 0.3 + 0.4 * (i % 2), y: 0.5, size: 0.2 }]);
+    await sleep(33);
+  }
+  check("a swinging open palm does not damp", (await state()).ringing > 0, `ringing=${(await state()).ringing}`);
   await fake([]);
   await sleep(1200);
 }
@@ -211,8 +239,8 @@ const state = () => ev(() => window.__gong.state());
 }
 
 // D. Holds: in Play a thumb does nothing and two fingers open Adjust; in
-// Adjust a thumb changes the gong, two fingers the mallet, a palm is done;
-// a palm in Play damps
+// Adjust a thumb changes the gong, two fingers the mallet, a fist is the way
+// back and a palm does nothing; a palm in Play damps
 {
   const g0 = (await state()).gong;
   await ev(() => window.__kiosk.gesture("Thumb_Up"));
@@ -241,7 +269,18 @@ const state = () => ev(() => window.__gong.state());
   await page.screenshot({ path: `${OUT}/g3c-adjust.png` });
   await ev(() => window.__kiosk.gesture("Open_Palm"));
   await sleep(100);
-  check("palm: done, back to Play", (await ev(() => window.__kiosk.mode)) === "play");
+  check("palm in Adjust does nothing", (await ev(() => window.__kiosk.mode)) === "adjust");
+  await ev(() => window.__kiosk.gesture("Closed_Fist"));
+  await sleep(100);
+  check("fist: back to Play", (await ev(() => window.__kiosk.mode)) === "play");
+  // the real hold path: a fist held still leaves Adjust
+  await ev(() => window.__kiosk.setMode("adjust"));
+  await sleep(100);
+  await fake([{ gesture: "Closed_Fist", score: 0.9, x: 0.5, y: 0.5, size: 0.2 }]);
+  await sleep(900);
+  await fake([]);
+  await sleep(100);
+  check("held fist leaves Adjust through the kiosk", (await ev(() => window.__kiosk.mode)) === "play");
   const lay = await ev(() => window.__gong.layout());
   await page.mouse.click(lay.width / 2, lay.height * 0.54);
   await sleep(100);
@@ -309,7 +348,10 @@ const state = () => ev(() => window.__gong.state());
   await page.screenshot({ path: `${OUT}/g4-bath.png` });
   await ev(() => window.__kiosk.gesture("Open_Palm"));
   await sleep(100);
-  check("palm stops the bath", (await ev(() => window.__kiosk.mode)) === "play");
+  check("palm in the bath damps and stays", (await ev(() => window.__kiosk.mode)) === "bath" && (await state()).ringing === 0, `mode=${await ev(() => window.__kiosk.mode)} ringing=${(await state()).ringing}`);
+  await ev(() => window.__kiosk.gesture("Closed_Fist"));
+  await sleep(100);
+  check("fist stops the bath", (await ev(() => window.__kiosk.mode)) === "play");
 }
 
 // F. A drag is a swing: press, sweep fast across the plate, and it strikes

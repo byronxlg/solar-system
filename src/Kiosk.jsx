@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DrawingUtils, GestureRecognizer } from "@mediapipe/tasks-vision";
 import { useGestureRecognizer } from "./useGestureRecognizer.js";
+import { usePoseLandmarker, POSE } from "./usePoseLandmarker.js";
 import { WAVE, makeWaveTracker, isOpenHand } from "./wave.js";
 import { rateLabel } from "./useCamera.js";
 import { FLY_DEAD, FLY_FULL, DIAL_DEAD, DIAL_SPAN } from "./useViewGestures.js";
@@ -23,6 +24,11 @@ import { FLY_DEAD, FLY_FULL, DIAL_DEAD, DIAL_SPAN } from "./useViewGestures.js";
 //   event     { key, label, at } the control that just fired; captioned for FIRED_MS
 //   gestures  gesture names that are held in this mode (drawn yellow, hold pill)
 //   liveGestures gesture names that drive the sky continuously in this mode (drawn yellow)
+//   stillHolds a hold only counts while the hand moves slower than this (frame
+//             widths per second); a swinging hand never fires a hold. Off by default.
+//   pose      also run the body model and draw the arms; onPose(body, now) every
+//             frame with { left, right, unit, x, y } (wrists as { x, y, z, vis }, all
+//             normalised to the raw frame) or null when nobody is in view
 //   onGesture(name), onHands(hands) every frame
 
 // The camera is shown mirrored, like a mirror. Spatial overlays are drawn in
@@ -44,21 +50,25 @@ const DEFAULT_MIN_SCORE = 0.6;
 export const minScore = (name) => MIN_SCORES[name] ?? DEFAULT_MIN_SCORE;
 const COOLDOWN_MS = 1500;
 const FIRED_MS = 1100;
-const LIVE_LABEL = { pan: "Panning", zoom: "Zooming", fly: "Flying", point: "Aiming", time: "Time", strike: "Mallet in hand", resize: "Resizing" };
+const LIVE_LABEL = { pan: "Panning", zoom: "Zooming", fly: "Flying", point: "Aiming", time: "Time", strike: "Swinging", resize: "Resizing" };
+const MOTION_LOST_MS = 300;
 
-export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, controls = [], gestures = [], liveGestures = [], onGesture, onHands, live = null, liveLabel = null, overlayRef: skyOverlayRef = null, viewRef = null, event = null }) {
+export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, controls = [], gestures = [], liveGestures = [], onGesture, onHands, live = null, liveLabel = null, overlayRef: skyOverlayRef = null, viewRef = null, event = null, stillHolds = Infinity, pose = false, onPose = null }) {
   const videoRef = useRef(null);
   const overlayRef = useRef(null);
   const streamRef = useRef(null);
   const propsRef = useRef({});
-  propsRef.current = { mode, color, hint, controls, gestures, liveGestures, onGesture, onHands, live, liveLabel, skyOverlayRef, viewRef, event };
+  propsRef.current = { mode, color, hint, controls, gestures, liveGestures, onGesture, onHands, live, liveLabel, skyOverlayRef, viewRef, event, stillHolds, pose, onPose };
   const [held, setHeld] = useState(null); // gesture being held right now, lights its legend row
   const [fired, setFired] = useState(null); // control key that just fired, flashes its legend row
   const holdRef = useRef({ since: {}, armed: {}, lastFired: {} });
   const waveRef = useRef(makeWaveTracker());
+  const motionRef = useRef({}); // per hand: where the palm was last frame, for its speed
   const [cameraError, setCameraError] = useState(null);
   const gesture = useGestureRecognizer();
-  const ready = gesture.status === "ready";
+  const body = usePoseLandmarker(pose);
+  const ready = gesture.status === "ready" && (!pose || body.status === "ready");
+  const loadError = gesture.error || body.error;
 
   useEffect(() => {
     if (!event) return;
@@ -110,18 +120,21 @@ export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, cont
       const now = performance.now();
       const p = propsRef.current;
       const handResult = gesture.recognizerRef.current.recognizeForVideo(video, now);
+      const poseResult = p.pose && body.landmarkerRef.current ? body.landmarkerRef.current.detectForVideo(video, now) : null;
 
       const ctx = canvas.getContext("2d");
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (MIRROR) ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
+      const v = p.viewRef?.current || {};
+      // the body goes under the hands: arms and shoulders, wrists ringed by their swing
+      if (poseResult) p.onPose?.(drawBody(ctx, poseResult, v.swing || {}, now), now);
       // "Grab" lights a grabbing hand and draws its drag handle; "Pinch" only the two-finger band
       const grabbing = p.liveGestures.includes("Grab");
       const navigating = grabbing || p.liveGestures.includes("Pinch");
-      const hands = drawHands(ctx, handResult, [...p.gestures, ...p.liveGestures], navigating, waveRef.current, now, grabbing);
+      const hands = drawHands(ctx, handResult, [...p.gestures, ...p.liveGestures], navigating, waveRef.current, now, grabbing, motionRef.current);
       p.onHands?.(hands);
       const holding = updateHolds(hands, now, p);
-      const v = p.viewRef?.current || {};
       if (navigating) drawNavigate(ctx, hands, now, v.scale || 1, grabbing, v.badge);
       const sky = p.skyOverlayRef?.current || {};
       if (p.live === "fly" && sky.fly) drawFly(ctx, sky.fly, now);
@@ -145,12 +158,14 @@ export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, cont
   // Fires held gestures and returns the hold in progress (the furthest
   // along, if several) as { name, progress }, or null. The filling caption
   // pill is the visual for the hold. A wave is a motion rather than a hold:
-  // its progress is how much of the wave has happened, not time held.
+  // its progress is how much of the wave has happened, not time held. With
+  // stillHolds set, a hand moving faster than that is not holding anything.
   function updateHolds(hands, now, p) {
     const h = holdRef.current;
     let holding = null;
     for (const name of p.gestures) {
-      const matched = matchHold(name, hands);
+      let matched = matchHold(name, hands);
+      if (matched && name !== WAVE && matched.some((x) => x.speed > p.stillHolds)) matched = null;
       if (!matched) {
         h.since[name] = null;
         h.armed[name] = false;
@@ -186,9 +201,9 @@ export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, cont
           </>
         )}
         {!ready && !cameraError && (
-          <p className={`loading${gesture.error ? " failed" : ""}`}>
+          <p className={`loading${loadError ? " failed" : ""}`}>
             <span className="dot" />
-            {gesture.error || "Warming up"}
+            {loadError || "Warming up"}
           </p>
         )}
       </div>
@@ -220,10 +235,11 @@ function overlayHands(hands, grab = true) {
   return new Set();
 }
 
-function drawHands(ctx, result, active, navigating = false, wave = null, now = 0, grab = true) {
+function drawHands(ctx, result, active, navigating = false, wave = null, now = 0, grab = true, motion = null) {
   const { width, height } = ctx.canvas;
   const drawer = new DrawingUtils(ctx);
   const waving = wave && active.includes(WAVE);
+  const seen = new Set();
   // classify first: the overlay set needs every hand's gesture
   const info = result.landmarks.map((landmarks, i) => {
     let g = result.gestures[i]?.[0];
@@ -236,10 +252,23 @@ function drawHands(ctx, result, active, navigating = false, wave = null, now = 0
     const key = result.handedness?.[i]?.[0]?.categoryName || String(i);
     const open = isOpenHand(landmarks) || (g?.categoryName === "Open_Palm" && g.score >= minScore("Open_Palm"));
     const progress = waving ? wave.update(key, { t: now, x: landmarks[12].x * width, unit: handUnit(landmarks, width, height), open }) : 0;
+    // how fast the palm is moving, in frame widths per second, per hand
+    let speed = 0;
+    if (motion) {
+      seen.add(key);
+      const last = motion[key];
+      if (last && now - last.t < MOTION_LOST_MS && now > last.t) {
+        const dt = (now - last.t) / 1000;
+        speed = Math.hypot(landmarks[9].x - last.x, ((landmarks[9].y - last.y) * height) / width) / dt;
+        speed = last.speed + (speed - last.speed) * 0.6;
+      }
+      motion[key] = { x: landmarks[9].x, y: landmarks[9].y, t: now, speed };
+    }
     // landmark 9 is the palm centre, 8 the index fingertip; unit is the hand
     // size as a fraction of the frame width, a stand-in for how close it is
-    return { hand: key, gesture: g?.categoryName || "None", score: g?.score || 0, wave: progress, x: landmarks[9].x * width, y: landmarks[9].y * height, nx: landmarks[9].x, ny: landmarks[9].y, ntx: landmarks[8].x, nty: landmarks[8].y, unit: handUnit(landmarks, width, height) / width };
+    return { hand: key, gesture: g?.categoryName || "None", score: g?.score || 0, wave: progress, speed, x: landmarks[9].x * width, y: landmarks[9].y * height, nx: landmarks[9].x, ny: landmarks[9].y, ntx: landmarks[8].x, nty: landmarks[8].y, unit: handUnit(landmarks, width, height) / width };
   });
+  if (motion) for (const key in motion) if (!seen.has(key)) delete motion[key];
   const hidden = navigating ? overlayHands(info, grab) : new Set();
   result.landmarks.forEach((landmarks, i) => {
     if (hidden.has(info[i])) return;
@@ -272,6 +301,61 @@ function drawHands(ctx, result, active, navigating = false, wave = null, now = 0
     }
   });
   return info;
+}
+
+// The body: shoulders, arms and hips as a faint skeleton under the hands,
+// the wrists as dots. A wrist mid-swing gets a ring that grows with its
+// speed (swing[Left|Right].k, 0..1) and flashes on a hit (swing.hitAt).
+// Returns the wrists and shoulder width for the app, normalised to the raw
+// frame, or null when nobody is in view.
+const BODY_LINES = [[POSE.lShoulder, POSE.rShoulder], [POSE.lShoulder, POSE.lElbow], [POSE.lElbow, POSE.lWrist], [POSE.rShoulder, POSE.rElbow], [POSE.rElbow, POSE.rWrist], [POSE.lShoulder, POSE.lHip], [POSE.rShoulder, POSE.rHip], [POSE.lHip, POSE.rHip]];
+const BODY_VIS = 0.5;
+const BODY_LINE = "rgba(255,255,255,0.45)";
+function drawBody(ctx, result, swing, now) {
+  const lm = result.landmarks?.[0];
+  if (!lm) return null;
+  const { width, height } = ctx.canvas;
+  const vis = (i) => lm[i].visibility ?? 1;
+  const at = (i) => ({ x: lm[i].x * width, y: lm[i].y * height });
+  const lw = Math.max(2, width / 400);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineWidth = lw;
+  ctx.strokeStyle = BODY_LINE;
+  for (const [a, b] of BODY_LINES) {
+    if (vis(a) < BODY_VIS || vis(b) < BODY_VIS) continue;
+    const pa = at(a), pb = at(b);
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+  }
+  const wrists = { Left: POSE.lWrist, Right: POSE.rWrist };
+  for (const side in wrists) {
+    const i = wrists[side];
+    if (vis(i) < BODY_VIS) continue;
+    const w = at(i);
+    const sw = swing[side] || {};
+    const k = Math.max(0, Math.min(1, sw.k || 0));
+    const hit = sw.hitAt ? Math.max(0, 1 - (now - sw.hitAt) / 300) : 0;
+    const r = Math.max(5, width / 90) * (1 + k * 1.6 + hit * 1.2);
+    ctx.fillStyle = k > 0.3 || hit > 0 ? ACTIVE : IDLE;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, Math.max(4, width / 140), 0, Math.PI * 2);
+    ctx.fill();
+    if (k > 0.05 || hit > 0) {
+      ctx.strokeStyle = hit > 0 ? `rgba(245,197,66,${0.4 + 0.6 * hit})` : `rgba(245,197,66,${0.35 + 0.55 * k})`;
+      ctx.lineWidth = lw * (1 + k + hit);
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+  const sh = [POSE.lShoulder, POSE.rShoulder];
+  const unit = vis(sh[0]) >= BODY_VIS && vis(sh[1]) >= BODY_VIS ? Math.hypot(lm[sh[0]].x - lm[sh[1]].x, ((lm[sh[0]].y - lm[sh[1]].y) * height) / width) : 0;
+  const wrist = (i) => ({ x: lm[i].x, y: lm[i].y, z: lm[i].z || 0, vis: vis(i) });
+  return { left: wrist(POSE.lWrist), right: wrist(POSE.rWrist), unit, x: (lm[sh[0]].x + lm[sh[1]].x) / 2, y: (lm[sh[0]].y + lm[sh[1]].y) / 2 };
 }
 
 // Grab: index fingertip touching the thumb tip. Other fingers do not matter.
