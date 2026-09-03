@@ -50,13 +50,14 @@ fire once; strikes and resizing act every frame.
 | Two fingers up (Victory), hold | Next mallet | yes |
 | Two pointed fingers, pinch in or out | Resize the gong (50% to 220% of its base diameter) | yes |
 | Open palm, hold | Damp the gong (everything ringing fades out) | yes |
-| Wave a hand | Gong bath | yes |
+| Two open palms, hold | Gong bath | yes |
+| Two hands, each swung | Two mallets, one per hand; hits sit left or right in the stereo field | yes |
 
 ## Gong bath
 
 | Control | Action | Built |
 |---|---|---|
-| (wait) | A soft strike every 2 to 4 s, sometimes doubled; every eighth moves to the next gong | yes |
+| (wait) | A soft strike every 2 to 4 s, every fourth louder, now and then a pair or a roll of three; every eighth moves to the next gong and mallet | yes |
 | Swing a hand | Join in | yes |
 | Thumb up, hold | Next gong | yes |
 | Open palm, hold | Stop the bath, back to Play | yes |
@@ -66,3 +67,6 @@ fire once; strikes and resizing act every frame.
 Click or tap the gong to strike it (a flick hits harder), scroll to resize.
 Space strikes near the centre, the arrow keys change the gong, `s` the
 mallet, `m` damps, `b` starts the bath, `Esc` stops it, `+` and `-` resize.
+
+A wave is deliberately not a control here: swinging at the gong twice is a
+wave, and the bath must not start on its own while someone is banging.

@@ -102,21 +102,33 @@ brighter than the centre, a bigger gong rings lower and longer.
 - `src/gong/audio.js`: Web Audio synthesis, no samples. Each strike is a
   bank of detuned sine pairs at the gong's partial ratios with their own
   decays, a filtered noise burst for the mallet's contact, a delayed swell of
-  the upper partials (the bloom), all through a synthetic hall and a
-  compressor. The context starts on the first click or key; the page says
-  so until it has.
+  the upper partials (the bloom), a band of noise that swells in behind a
+  hard hit and hangs on (the wash), a short low thump under a soft mallet
+  hit hard and a metallic ping off a hard head, panned to where on the
+  plate the hit landed, all through a synthetic hall and a compressor. An
+  analyser on the output gives the stage the level so the halo breathes
+  with the sound. The context starts on the first click or key; the page
+  says so until it has.
 - `src/gong/useGong.js`: selection (gong, mallet, size), physics (pendulum
-  swing, push-back, flash, ripples, sparks) and `strike()`, which every
-  source goes through: hands, mouse, touch, keys and the bath. `layout()`
-  says where the gong is on the stage.
-- `src/gong/useStrikeGestures.js`: hands to mallet and strikes; two pointed
-  fingers pinching resize the gong.
-- `src/gong/GongStage.jsx`: the canvas. Room, frame, ropes, the gong with its
-  rim, hammer marks, lacquer, boss, ripples and sheen, sparks, the mallet.
+  swing, push-back, the plate rocking about the axis across the hit, a jolt
+  of the whole stage on a hard hit, flash, ripples, glints, sparks, the
+  strength popup) and `strike()`, which every source goes through: hands,
+  mouse, touch, keys and the bath. One mallet per holder (each hand, the
+  mouse), with a short trail for the swoosh. `layout()` says where the gong
+  is on the stage.
+- `src/gong/useStrikeGestures.js`: hands to mallets and strikes, one mallet
+  per hand so two hands play two-handed; two pointed fingers pinching resize
+  the gong.
+- `src/gong/GongStage.jsx`: the canvas. Room and halo, frame, ropes, the gong
+  with its rim, hammer marks, lacquer, boss, ripples, rocking light and
+  sheen, a rim of light that rings with the sound, sparks, the mallets,
+  the popups.
 - Modes: PLAY (bronze) and GONG BATH (indigo), where the gong plays itself
-  with slow, soft strikes and moves on to the next gong every eighth one.
-  Hold a thumb up or down for the next or previous gong, two fingers up for
-  the next mallet, an open palm to damp it, wave for the bath.
+  with slow, soft strikes, every fourth louder, the odd pair or roll, and
+  moves on to the next gong and mallet every eighth one. Hold a thumb up or
+  down for the next or previous gong, two fingers up for the next mallet, an
+  open palm to damp it, two open palms for the bath. Not a wave: swinging at
+  the gong twice is a wave.
 
 Without a camera: click or tap the gong, scroll to resize; Space strikes,
 the arrow keys change the gong, `s` the mallet, `m` damps, `b` starts the

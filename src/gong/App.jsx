@@ -21,7 +21,7 @@ export default function App() {
       hands.map((h) => {
         const x = h.nx ?? h.x;
         const tx = h.ntx ?? x;
-        return { gesture: h.gesture, score: h.score ?? 1, x: MIRROR ? 1 - x : x, y: h.ny ?? h.y, tipX: MIRROR ? 1 - tx : tx, tipY: h.nty ?? h.ny ?? h.y, unit: h.unit ?? 0.2 };
+        return { hand: h.hand || "Right", gesture: h.gesture, score: h.score ?? 1, x: MIRROR ? 1 - x : x, y: h.ny ?? h.y, tipX: MIRROR ? 1 - tx : tx, tipY: h.nty ?? h.ny ?? h.y, unit: h.unit ?? 0.2 };
       }),
       size,
       now
@@ -52,8 +52,8 @@ export default function App() {
       strike: (x, y, strength = 0.7) => gong.strike({ x, y, strength, source: "dev" }),
       state: () => ({ ...gong.selRef.current, gong: GONGS[gong.selRef.current.gong].key, mallet: MALLETS[gong.selRef.current.mallet].key, cm: gong.cm, hits: gong.physRef.current.hits, lastHit: gong.physRef.current.lastHit, ringing: audio.ringing(), audio: audio.unlocked(), mode: modeRef.current }),
       phys: () => ({ ...gong.physRef.current }),
-      mallet: () => ({ ...gong.malletRef.current }),
-      swing: () => (gestures.handRef.current ? { x: gestures.handRef.current.x, y: gestures.handRef.current.y, u: gestures.handRef.current.u, speed: gestures.handRef.current.speed, armed: gestures.handRef.current.armed } : null),
+      mallets: () => Object.fromEntries(Object.entries(gong.malletsRef.current).map(([k, m]) => [k, { ...m }])),
+      swings: () => Object.fromEntries(Object.entries(gestures.handsRef.current).map(([k, f]) => [k, { x: f.x, y: f.y, u: f.u, speed: f.speed, armed: f.armed }])),
       layout: () => {
         const el = document.querySelector(".stage-wrap");
         return { ...gong.sizeRef.current, ...(el ? { width: el.clientWidth, height: el.clientHeight } : {}) };
@@ -63,6 +63,8 @@ export default function App() {
       setSize: gong.setSize,
       damp: gong.damp,
       wake: gong.wake,
+      level: audio.level,
+      peak: audio.peak,
       hands: feedHands,
     };
     window.__view = { hands: feedHands };
