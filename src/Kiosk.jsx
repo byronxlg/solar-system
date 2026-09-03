@@ -238,7 +238,7 @@ function drawHands(ctx, result, active, navigating = false, wave = null, now = 0
     const progress = waving ? wave.update(key, { t: now, x: landmarks[12].x * width, unit: handUnit(landmarks, width, height), open }) : 0;
     // landmark 9 is the palm centre, 8 the index fingertip; unit is the hand
     // size as a fraction of the frame width, a stand-in for how close it is
-    return { gesture: g?.categoryName || "None", score: g?.score || 0, wave: progress, x: landmarks[9].x * width, y: landmarks[9].y * height, nx: landmarks[9].x, ny: landmarks[9].y, ntx: landmarks[8].x, nty: landmarks[8].y, unit: handUnit(landmarks, width, height) / width };
+    return { hand: key, gesture: g?.categoryName || "None", score: g?.score || 0, wave: progress, x: landmarks[9].x * width, y: landmarks[9].y * height, nx: landmarks[9].x, ny: landmarks[9].y, ntx: landmarks[8].x, nty: landmarks[8].y, unit: handUnit(landmarks, width, height) / width };
   });
   const hidden = navigating ? overlayHands(info, grab) : new Set();
   result.landmarks.forEach((landmarks, i) => {

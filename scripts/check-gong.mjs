@@ -52,6 +52,60 @@ const state = () => ev(() => window.__gong.state());
   check("click off the gong misses", (await state()).hits === 1);
 }
 
+// A2. The sound is real: the output level rises after a hit, is louder for
+// a harder hit, sits well under clipping, and a damp kills it
+{
+  const lay = await ev(() => window.__gong.layout());
+  await ev(() => window.__gong.damp());
+  await sleep(1500); // the hall's tail
+  const quiet = await ev(() => window.__gong.level());
+  // loudest level and loudest sample over the first half second of a hit
+  const loudest = async (strength) => {
+    await page.evaluate(([l, s]) => window.__gong.strike(l.width / 2 + 10, l.height * 0.54, s), [lay, strength]);
+    let top = 0, pk = 0;
+    for (let i = 0; i < 20; i++) {
+      await sleep(25);
+      const [lv, p] = await ev(() => [window.__gong.level(), window.__gong.peak()]);
+      top = Math.max(top, lv);
+      pk = Math.max(pk, p);
+    }
+    await ev(() => window.__gong.damp());
+    await sleep(600);
+    return [top, pk];
+  };
+  const [soft] = await loudest(0.25);
+  const [hard, hardPeak] = await loudest(1);
+  check("silence before a hit", quiet < 0.05, `level=${quiet.toFixed(3)}`);
+  check("a hit makes sound", soft > 0.03, `soft level=${soft.toFixed(3)}`);
+  check("a harder hit is louder", hard > soft * 1.3, `soft=${soft.toFixed(3)} hard=${hard.toFixed(3)}`);
+  check("a hard hit does not clip", hardPeak < 0.99, `peak=${hardPeak.toFixed(3)}`);
+  await page.evaluate((l) => window.__gong.strike(l.width / 2, l.height * 0.54, 0.9), lay);
+  await sleep(200);
+  const ringing = await ev(() => window.__gong.level());
+  await ev(() => window.__gong.damp());
+  await sleep(400);
+  const damped = await ev(() => window.__gong.level());
+  check("a damp silences it", ringing > 0.03 && damped < ringing * 0.25, `ringing=${ringing.toFixed(3)} damped=${damped.toFixed(3)}`);
+  // every gong with the softest and hardest mallet stays under clipping at full strength, two hits stacked
+  let worst = 0;
+  for (let g = 0; g < 6; g++) {
+    for (const mm of [1, 4]) {
+      await page.evaluate(([g, mm]) => { window.__gong.setGong(g); window.__gong.setMallet(mm); }, [g, mm]);
+      await sleep(30);
+      await page.evaluate((l) => { window.__gong.strike(l.width / 2, l.height * 0.54, 1); window.__gong.strike(l.width / 2 + l.width * 0.1, l.height * 0.54, 1); }, lay);
+      for (let i = 0; i < 12; i++) {
+        await sleep(25);
+        worst = Math.max(worst, await ev(() => window.__gong.peak()));
+      }
+      await ev(() => window.__gong.damp());
+      await sleep(300);
+    }
+  }
+  check("no gong clips with two full hits stacked", worst < 0.99, `worst peak=${worst.toFixed(3)}`);
+  await ev(() => { window.__gong.setGong(0); window.__gong.setMallet(0); });
+  await sleep(200);
+}
+
 // B. A hand swings at the gong: the mallet follows the palm and the peak of
 // the swing strikes. Fake hands are raw video coords (mirrored on screen).
 {
@@ -64,8 +118,8 @@ const state = () => ev(() => window.__gong.state());
   }
   await sleep(250);
   const s = await state();
-  const m = await ev(() => window.__gong.mallet());
-  check("mallet follows the hand", m.source === "hand", `source=${m.source}`);
+  const ms = await ev(() => window.__gong.mallets());
+  check("mallet follows the hand", ms.Right?.source === "hand" && ms.Right.at > 0, JSON.stringify(Object.keys(ms)));
   check("swing strikes the gong", s.hits === before + 1 && s.lastHit?.source === "hand", `hits=${s.hits} source=${s.lastHit?.source}`);
   const hud = await ev(() => [...document.querySelectorAll(".sky-hud .pill")].map((p) => p.textContent));
   check("hud says hit", /Hit \d+%/.test(hud[1]), hud[1]);
@@ -96,6 +150,26 @@ const state = () => ev(() => window.__gong.state());
   }
   await sleep(200);
   check("a thumb up hand does not strike", (await state()).hits === before + 2);
+  await fake([]);
+  await sleep(400);
+  // two hands are two mallets: both swing in from the sides and both strike
+  const h2 = (await state()).hits;
+  const steps = [[0.1, 0.9], [0.14, 0.86], [0.2, 0.8], [0.28, 0.72], [0.36, 0.64], [0.42, 0.58], [0.45, 0.55], [0.45, 0.55], [0.45, 0.55]];
+  for (const [xr, xl] of steps) {
+    await fake([{ gesture: "None", score: 0.5, x: xr, y: 0.5, size: 0.2 }, { gesture: "None", score: 0.5, x: xl, y: 0.5, size: 0.2, hand: "Left" }]);
+    await sleep(33);
+  }
+  await sleep(250);
+  const two = await ev(() => ({ s: window.__gong.state(), m: window.__gong.mallets() }));
+  check("two hands are two mallets", two.m.Right?.source === "hand" && two.m.Left?.source === "hand", JSON.stringify(Object.keys(two.m)));
+  check("both hands strike", two.s.hits === h2 + 2, `hits ${h2} -> ${two.s.hits}`);
+  const phys = await ev(() => window.__gong.phys());
+  check("hits rock and jolt the plate", Math.abs(phys.rockVel) + Math.abs(phys.rock) > 0.01 && phys.popups.length >= 2, `rock=${phys.rock.toFixed(3)} popups=${phys.popups.length}`);
+  const hud2 = await ev(() => document.querySelectorAll(".sky-hud .pill")[1].textContent);
+  await sleep(800);
+  const hud3 = await ev(() => document.querySelectorAll(".sky-hud .pill")[1].textContent);
+  check("hud names two mallets once the hit caption clears", hud3 === "Two mallets over the gong", `${hud2} / ${hud3}`);
+  await page.screenshot({ path: `${OUT}/g2b-two-hands.png` });
   await fake([]);
   await sleep(1200);
 }
@@ -163,11 +237,30 @@ const state = () => ev(() => window.__gong.state());
   await ev(() => { window.__gong.setGong(0); window.__gong.setMallet(0); window.__gong.damp(); });
 }
 
-// E. Wave starts the bath; it strikes on its own; a palm stops it
+// E. Two palms start the bath; it strikes on its own; a palm stops it
 {
-  await ev(() => window.__kiosk.gesture("Wave"));
+  // through the real hold path: two open palms for the hold time
+  await fake([{ gesture: "Open_Palm", score: 0.8, x: 0.35, y: 0.5, size: 0.2 }, { gesture: "Open_Palm", score: 0.8, x: 0.65, y: 0.5, size: 0.2, hand: "Left" }]);
+  await sleep(900);
+  await fake([]);
   await sleep(100);
-  check("wave starts the bath", (await ev(() => window.__kiosk.mode)) === "bath");
+  check("two held palms start the bath", (await ev(() => window.__kiosk.mode)) === "bath");
+  // a hand swung back and forth at the gong is not a wave and does not change the mode
+  await ev(() => window.__kiosk.setMode("play"));
+  await sleep(100);
+  for (let pass = 0; pass < 3; pass++) {
+    for (const x of pass % 2 ? [0.6, 0.5, 0.4, 0.3, 0.25] : [0.25, 0.3, 0.4, 0.5, 0.6]) {
+      await fake([{ gesture: "None", score: 0.5, x, y: 0.5, size: 0.2 }]);
+      await sleep(40);
+    }
+  }
+  await sleep(200);
+  check("banging back and forth stays in play", (await ev(() => window.__kiosk.mode)) === "play", (await ev(() => window.__kiosk.mode)));
+  await fake([]);
+  await sleep(100);
+  await ev(() => window.__kiosk.gesture("Two_Open_Palms"));
+  await sleep(100);
+  check("two palms (dev hook) start the bath", (await ev(() => window.__kiosk.mode)) === "bath");
   const h0 = (await state()).hits;
   await sleep(5000);
   const s = await state();

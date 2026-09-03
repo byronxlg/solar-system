@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import Kiosk from "../Kiosk.jsx";
-import { WAVE } from "../wave.js";
+import Kiosk, { TWO_PALMS } from "../Kiosk.jsx";
 import { GONGS, MALLETS } from "./gongs.js";
 import { layout } from "./useGong.js";
 
@@ -8,12 +7,14 @@ import { layout } from "./useGong.js";
 // to playing when a palm stops it.
 //   play  a swinging hand strikes; Thumb Up/Down (held) -> next/previous gong,
 //         Victory (held) -> next mallet, two pointed fingers pinching -> resize,
-//         Open Palm (held) -> damp the gong, a wave -> gong bath
+//         Open Palm (held) -> damp the gong, two Open Palms (held) -> gong bath.
+//         Not a wave: swinging at the gong twice is a wave, and the bath
+//         must not start on its own while someone is banging.
 //   bath  the gong plays itself; a hand still strikes; Thumb Up (held) -> next gong,
 //         Open Palm (held) -> stop
 export const BATH_MIN_MS = 1800;
 export const BATH_MAX_MS = 4200;
-const KEYS = { ArrowRight: "Thumb_Up", ArrowLeft: "Thumb_Down", s: "Victory", m: "Open_Palm", b: WAVE, Escape: "Open_Palm" };
+const KEYS = { ArrowRight: "Thumb_Up", ArrowLeft: "Thumb_Down", s: "Victory", m: "Open_Palm", b: TWO_PALMS, Escape: "Open_Palm" };
 
 export const ACCENT = { bronze: "#b4732f", indigo: "#4b5bb5" };
 const UI = {
@@ -27,9 +28,9 @@ const UI = {
       ["Hold two fingers up", "Next mallet", "Victory"],
       ["Pinch two pointed fingers", "Resize the gong", "resize"],
       ["Hold an open palm", "Damp it", "Open_Palm"],
-      ["Wave a hand", "Gong bath", WAVE],
+      ["Hold two open palms", "Gong bath", TWO_PALMS],
     ],
-    gestures: [WAVE, "Thumb_Up", "Thumb_Down", "Victory", "Open_Palm"],
+    gestures: [TWO_PALMS, "Thumb_Up", "Thumb_Down", "Victory", "Open_Palm"],
     live: ["Pinch"],
   },
   bath: {
@@ -65,24 +66,37 @@ export default function Controls({ gong, onHands, live = null, liveLabel = null,
   }
 
   // The bath: gentle strikes at a slow, uneven pace, wandering over the
-  // plate, with the odd double hit. Every eighth strike moves to the next gong.
+  // plate. Mostly soft, every fourth a little louder, now and then a roll of
+  // three quick soft hits or a pair. Every eighth strike moves to the next
+  // gong, and the mallet changes with it so each gong gets a fresh voice.
   useEffect(() => {
     if (mode !== "bath") {
       clearTimeout(bathRef.current);
       return;
     }
     let count = 0;
+    let roll = 0; // quick hits left in a roll
+    let wander = Math.random() * Math.PI * 2; // the hits drift around the plate
     const step = () => {
       const size = gong.sizeRef.current;
       const { cx, cy, R } = layout(gong.selRef.current.size, size);
-      const a = Math.random() * Math.PI * 2;
-      const r = Math.sqrt(Math.random()) * 0.85;
-      const strength = 0.25 + Math.random() * 0.45;
-      gong.strike({ x: cx + Math.cos(a) * r * R, y: cy + Math.sin(a) * r * R, strength, source: "bath" });
-      count += 1;
-      if (count % 8 === 0) gong.stepGong(1);
-      const double = Math.random() < 0.2;
-      bathRef.current = setTimeout(step, double ? 320 : BATH_MIN_MS + Math.random() * (BATH_MAX_MS - BATH_MIN_MS));
+      wander += (Math.random() - 0.5) * 1.4;
+      const r = roll ? 0.55 + Math.random() * 0.3 : Math.sqrt(Math.random()) * 0.8;
+      const accent = count % 4 === 3;
+      const strength = roll ? 0.18 + Math.random() * 0.12 : accent ? 0.5 + Math.random() * 0.3 : 0.22 + Math.random() * 0.25;
+      gong.strike({ x: cx + Math.cos(wander) * r * R, y: cy + Math.sin(wander) * r * R, strength, source: "bath", id: "bath" });
+      if (roll) roll -= 1;
+      else {
+        count += 1;
+        if (count % 8 === 0) {
+          gong.stepGong(1);
+          gong.stepMallet(1);
+        }
+        const dice = Math.random();
+        if (dice < 0.12) roll = 2;
+        else if (dice < 0.3) roll = 1;
+      }
+      bathRef.current = setTimeout(step, roll ? 160 + Math.random() * 120 : BATH_MIN_MS + Math.random() * (BATH_MAX_MS - BATH_MIN_MS));
     };
     bathRef.current = setTimeout(step, 400);
     return () => clearTimeout(bathRef.current);
@@ -96,7 +110,7 @@ export default function Controls({ gong, onHands, live = null, liveLabel = null,
       if (g === "Thumb_Down") return gong.stepGong(-1);
       if (g === "Victory") return gong.stepMallet(1);
       if (g === "Open_Palm") return gong.damp();
-      if (g === WAVE) return setMode("bath");
+      if (g === TWO_PALMS) return setMode("bath");
       return;
     }
     if (m === "bath") {
@@ -141,7 +155,7 @@ export default function Controls({ gong, onHands, live = null, liveLabel = null,
   const ui = UI[mode];
   uiRef.current = ui;
   const hint = liveLabel || (mode === "bath" ? `${gong.gong.name} plays itself` : ui.hint);
-  const note = mode === "bath" ? "Slow, soft strikes. Every eighth one moves to the next gong." : `${gong.gong.name}, ${gong.cm} cm, with the ${gong.mallet.name.toLowerCase()}.`;
+  const note = mode === "bath" ? `Slow, soft strikes with the ${gong.mallet.name.toLowerCase()}. Every eighth one moves to the next gong and mallet.` : `${gong.gong.name}, ${gong.cm} cm, with the ${gong.mallet.name.toLowerCase()}.`;
 
   return (
     <aside className="panel" style={{ "--accent": ui.color }}>

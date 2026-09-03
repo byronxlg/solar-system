@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { GONGS, MALLETS } from "./gongs.js";
 import { layout, SWING_HANG } from "./useGong.js";
+import { level } from "./audio.js";
 
 // The stage: a 2D canvas with the gong hanging in its frame. The gong
 // (useGong) keeps the physics; this draws from its refs every frame and
@@ -39,6 +40,7 @@ export default function GongStage({ gong, onFrame = null }) {
     const ctx = canvas.getContext("2d");
     let last = performance.now();
     let frameId;
+    const loud = { v: 0 };
     const tick = () => {
       frameId = requestAnimationFrame(tick);
       const now = performance.now();
@@ -58,18 +60,24 @@ export default function GongStage({ gong, onFrame = null }) {
       const theme = GONGS[sel.gong];
       const mallet = MALLETS[sel.mallet];
       const geo = layout(sel.size, size);
-      const view = { w, h, now, dt, phys, theme, mallet, geo, sel, gi: sel.gong };
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // the sound level, eased, drives the halo
+      const lv = level();
+      loud.v += (lv - loud.v) * (lv > loud.v ? 0.5 : 1 - Math.exp(-dt * 6));
+      const view = { w, h, now, dt, phys, theme, mallet, geo, sel, gi: sel.gong, loud: loud.v };
+      // a hard hit jolts the whole stage
+      const jolt = Math.max(4, geo.R * 0.03);
+      ctx.setTransform(dpr, 0, 0, dpr, dpr * phys.shakeX * jolt, dpr * phys.shakeY * jolt);
       drawRoom(ctx, view);
       drawFrame(ctx, view);
       drawGong(ctx, view);
       drawSparks(ctx, view);
-      drawMallet(ctx, view, gong.malletRef.current);
+      for (const id in gong.malletsRef.current) drawMallet(ctx, view, gong.malletsRef.current[id]);
+      drawPopups(ctx, view);
       propsRef.current.onFrame?.(view);
     };
     frameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameId);
-  }, [gong.track, gong.selRef, gong.malletRef]);
+  }, [gong.track, gong.selRef, gong.malletsRef]);
 
   // Mouse and touch: the pointer holds the mallet when no hand does; a press
   // strikes where it lands, as hard as the pointer was moving.
@@ -85,16 +93,15 @@ export default function GongStage({ gong, onFrame = null }) {
     const w = canvasRef.current.clientWidth || 1;
     const v = Math.hypot(p.x - pr.x, p.y - pr.y) / w / dt;
     pr.speed = pr.speed + (v - pr.speed) * 0.5;
+    const m = gong.holdMallet("mouse");
+    m.vx = m.vx + ((p.x - pr.x) / dt - m.vx) * 0.5;
+    m.vy = m.vy + ((p.y - pr.y) / dt - m.vy) * 0.5;
     pr.x = p.x;
     pr.y = p.y;
     pr.t = now;
-    const m = gong.malletRef.current;
-    if (m.source !== "hand" || now - m.at > 300) {
-      m.x = p.x;
-      m.y = p.y;
-      m.source = "mouse";
-      m.at = now;
-    }
+    m.x = p.x;
+    m.y = p.y;
+    m.at = now;
   }
   function onDown(e) {
     gong.wake();
@@ -105,12 +112,11 @@ export default function GongStage({ gong, onFrame = null }) {
     pr.lastStrike = now;
     // a still click is a medium hit; a flick is harder
     const strength = Math.min(1, 0.55 + pr.speed / 6);
-    const m = gong.malletRef.current;
+    const m = gong.holdMallet("mouse");
     m.x = p.x;
     m.y = p.y;
-    m.source = "mouse";
     m.at = now;
-    gong.strike({ x: p.x, y: p.y, strength, source: e.pointerType === "touch" ? "touch" : "mouse" });
+    gong.strike({ x: p.x, y: p.y, strength, source: e.pointerType === "touch" ? "touch" : "mouse", id: "mouse" });
     canvasRef.current.setPointerCapture?.(e.pointerId);
   }
   // wheel resizes; a native listener because React's is passive and the
@@ -125,8 +131,8 @@ export default function GongStage({ gong, onFrame = null }) {
     return () => canvas.removeEventListener("wheel", onWheel);
   }, [gong]);
   function onLeave() {
-    const m = gong.malletRef.current;
-    if (m.source === "mouse") m.source = null;
+    const m = gong.malletsRef.current.mouse;
+    if (m) m.at = -Infinity;
   }
 
   return (
@@ -138,18 +144,20 @@ export default function GongStage({ gong, onFrame = null }) {
 
 // Warm dark hall: a wash of light behind the gong that brightens with the
 // hit, a floor line, a vignette.
-function drawRoom(ctx, { w, h, phys, theme, geo }) {
+function drawRoom(ctx, { w, h, phys, theme, geo, loud }) {
   ctx.fillStyle = "#15100c";
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillRect(-w, -h, w * 3, h * 3);
   const g = ctx.createRadialGradient(geo.cx, geo.cy, geo.R * 0.4, geo.cx, geo.cy, Math.max(w, h) * 0.8);
   g.addColorStop(0, `rgba(120,80,40,${0.35 + phys.flash * 0.35})`);
   g.addColorStop(0.5, "rgba(60,40,24,0.35)");
   g.addColorStop(1, "rgba(8,6,4,0.9)");
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
-  // a hint of the gong's colour on the wall behind it
-  const tint = ctx.createRadialGradient(geo.cx, geo.cy, geo.R * 0.9, geo.cx, geo.cy, geo.R * 2.2);
-  tint.addColorStop(0, hexA(theme.color, 0.16 + phys.flash * 0.25));
+  ctx.fillRect(-w, -h, w * 3, h * 3);
+  // the halo: the gong's colour on the wall behind it, breathing with the sound
+  const glow = 0.12 + phys.flash * 0.2 + loud * 0.55;
+  const tint = ctx.createRadialGradient(geo.cx, geo.cy, geo.R * 0.85, geo.cx, geo.cy, geo.R * (1.8 + loud * 0.8));
+  tint.addColorStop(0, hexA(theme.color, glow));
+  tint.addColorStop(0.4, hexA(theme.color, glow * 0.4));
   tint.addColorStop(1, hexA(theme.color, 0));
   ctx.fillStyle = tint;
   ctx.fillRect(0, 0, w, h);
@@ -236,6 +244,15 @@ function drawGong(ctx, view) {
   ctx.translate(0, hang);
   const squeeze = 1 - 0.07 * Math.max(-1, Math.min(1, phys.tilt));
   ctx.scale(squeeze, 1 - 0.015 * Math.abs(phys.tilt));
+  // and rocks about the axis across the hit: the plate foreshortens along
+  // the line from the centre through the hit
+  const rock = Math.max(-1, Math.min(1, phys.rock));
+  const ra = Math.atan2(phys.rockY, phys.rockX);
+  if (Math.abs(rock) > 0.002) {
+    ctx.rotate(ra);
+    ctx.scale(1 - 0.12 * Math.abs(rock), 1);
+    ctx.rotate(-ra);
+  }
   // shadow on the wall
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.beginPath();
@@ -339,6 +356,31 @@ function drawGong(ctx, view) {
     ctx.fillStyle = fg;
     ctx.fillRect(-faceR, -faceR, faceR * 2, faceR * 2);
   }
+  // the rocking plate catches the light on the side coming toward us
+  if (Math.abs(rock) > 0.01) {
+    const lg = ctx.createLinearGradient(Math.cos(ra) * faceR, Math.sin(ra) * faceR, -Math.cos(ra) * faceR, -Math.sin(ra) * faceR);
+    const k = Math.min(0.35, Math.abs(rock) * 0.5);
+    lg.addColorStop(0, rock > 0 ? `rgba(0,0,0,${k})` : `rgba(255,240,210,${k * 0.8})`);
+    lg.addColorStop(0.5, "rgba(0,0,0,0)");
+    lg.addColorStop(1, rock > 0 ? `rgba(255,240,210,${k * 0.8})` : `rgba(0,0,0,${k})`);
+    ctx.fillStyle = lg;
+    ctx.fillRect(-faceR, -faceR, faceR * 2, faceR * 2);
+  }
+  // glints: points of light thrown off the face by a hard hit
+  for (const gl of phys.glints) {
+    const k = (now - gl.at) / gl.life;
+    const pop = k < 0.2 ? k / 0.2 : 1 - (k - 0.2) / 0.8;
+    const gr = faceR * 0.03 * gl.size * pop;
+    if (gr <= 0) continue;
+    ctx.fillStyle = `rgba(255,250,230,${0.9 * pop})`;
+    ctx.beginPath();
+    ctx.moveTo(gl.x * faceR - gr, gl.y * faceR);
+    ctx.lineTo(gl.x * faceR, gl.y * faceR - gr * 3);
+    ctx.lineTo(gl.x * faceR + gr, gl.y * faceR);
+    ctx.lineTo(gl.x * faceR, gl.y * faceR + gr * 3);
+    ctx.closePath();
+    ctx.fill();
+  }
   // a palm on it: the whole face dims for a moment
   const damped = now - phys.damped;
   if (damped < 500) {
@@ -354,12 +396,22 @@ function drawGong(ctx, view) {
   ctx.fillStyle = sheen;
   ctx.fillRect(-faceR, -faceR, faceR * 2, faceR * 2);
   ctx.restore();
-  // edge line
+  // edge line, and a rim of light that rings with the sound
   ctx.strokeStyle = "rgba(0,0,0,0.5)";
   ctx.lineWidth = Math.max(1, R * 0.01);
   ctx.beginPath();
   ctx.arc(0, 0, R, 0, Math.PI * 2);
   ctx.stroke();
+  if (view.loud > 0.02) {
+    ctx.strokeStyle = `rgba(255,232,190,${view.loud * 0.7})`;
+    ctx.lineWidth = Math.max(1.5, R * 0.012) * (1 + view.loud);
+    ctx.shadowColor = hexA(theme.color, view.loud);
+    ctx.shadowBlur = R * 0.08 * view.loud;
+    ctx.beginPath();
+    ctx.arc(0, 0, R * (1 + 0.01 * view.loud), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
   // hooks
   for (const s of [-1, 1]) {
     const a = -Math.PI / 2 + s * 0.33;
@@ -382,23 +434,46 @@ function drawSparks(ctx, { geo, phys, now }) {
   }
 }
 
-// The mallet follows whoever holds it: shaft in from the bottom right, head
-// at the hand, a shadow on the plate when it is over the gong, and a recoil
-// along the shaft after a hit.
+// The mallet follows whoever holds it: shaft in from below, on the side
+// the mallet is on, leaning into its swing; head at the hand, a shadow on
+// the plate when it is over the gong, and a recoil along the shaft after a
+// hit.
 function drawMallet(ctx, { geo, now, mallet, w, h }, m) {
-  if (!m.source || now - m.at > 1500) return;
+  if (now - m.at > 1500) return;
   const { cx, cy, R } = geo;
   const headR = Math.max(10, R * 0.09) * mallet.headR;
   const fade = Math.min(1, (1500 - (now - m.at)) / 300);
-  // the shaft comes in from below and to the right of the head
-  const dirX = 0.55;
-  const dirY = 0.83;
+  // the shaft comes in from below, from the side the head is on, and the
+  // head leads the swing so the shaft trails the motion
+  const side = m.x < cx ? -1 : 1;
+  const lean = Math.max(-0.55, Math.min(0.55, (-m.vx / Math.max(1, w)) * 0.35));
+  const angle = Math.PI / 2 - side * 0.58 + lean;
+  const dirX = Math.cos(angle);
+  const dirY = Math.sin(angle);
   const len = Math.max(140, R * 1.1);
   const recoil = m.recoil * headR * 1.4;
   const hx = m.x + dirX * recoil;
   const hy = m.y + dirY * recoil;
   ctx.save();
   ctx.globalAlpha = fade;
+  // the swoosh: a tapered trail behind a fast head
+  const trail = m.trail || [];
+  if (trail.length > 2) {
+    const speed = Math.hypot(m.vx, m.vy) / Math.max(1, w);
+    const k = Math.min(1, Math.max(0, (speed - 0.4) / 2.5));
+    if (k > 0) {
+      ctx.lineCap = "round";
+      for (let i = 1; i < trail.length; i++) {
+        const u = i / (trail.length - 1);
+        ctx.strokeStyle = `rgba(255,236,200,${0.35 * k * u})`;
+        ctx.lineWidth = headR * 1.6 * u * k;
+        ctx.beginPath();
+        ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
+        ctx.lineTo(trail[i].x, trail[i].y);
+        ctx.stroke();
+      }
+    }
+  }
   // shadow on the gong
   const over = Math.hypot(m.x - cx, m.y - cy) <= R;
   if (over) {
@@ -458,6 +533,29 @@ function drawMallet(ctx, { geo, now, mallet, w, h }, m) {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+// The hit's strength, rising off the plate and fading, like the number on
+// a strongman's bell.
+function drawPopups(ctx, { phys, now, geo }) {
+  for (const pp of phys.popups) {
+    const k = (now - pp.at) / 900;
+    const rise = geo.R * 0.35 * (1 - Math.pow(1 - k, 2));
+    const alpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+    const font = Math.max(14, geo.R * (0.12 + 0.1 * pp.strength)) * (k < 0.12 ? 0.7 + 0.3 * (k / 0.12) : 1);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `800 ${font}px ${FONT}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = font * 0.18;
+    ctx.strokeStyle = "rgba(21,16,12,0.85)";
+    ctx.strokeText(pp.text, pp.x, pp.y - rise);
+    ctx.fillStyle = pp.strength > 0.8 ? "#ffd166" : "#fff3dc";
+    ctx.fillText(pp.text, pp.x, pp.y - rise);
+    ctx.restore();
+  }
 }
 
 function hexToRgb(hex) {

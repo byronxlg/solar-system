@@ -9,12 +9,14 @@
 import { fundamentalHz, strikeSpectrum } from "./gongs.js";
 
 const MAX_VOICES = 10;
-const MASTER = 0.5;
+const MASTER = 0.45;
 
 let ctx = null;
 let master = null;
 let hall = null;
 let noiseBuf = null;
+let analyser = null;
+let levelBuf = null;
 const voices = []; // { nodes: [], stop: (t) => void, at }
 
 export function unlocked() {
@@ -39,12 +41,26 @@ export function unlock() {
     hall.buffer = impulse(ctx, 2.8, 2.6);
     const wet = ctx.createGain();
     wet.gain.value = 0.32;
+    // a limiter after the compressor so two full hits stacked never clip
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -4;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.001;
+    limiter.release.value = 0.12;
     master.connect(comp);
     master.connect(hall);
     hall.connect(wet);
     wet.connect(comp);
-    comp.connect(ctx.destination);
-    noiseBuf = noise(ctx, 1);
+    comp.connect(limiter);
+    limiter.connect(ctx.destination);
+    // the stage reads the level off the output so the glow follows the sound
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.5;
+    limiter.connect(analyser);
+    levelBuf = new Float32Array(analyser.fftSize);
+    noiseBuf = noise(ctx, 2);
   }
   if (ctx.state !== "running") ctx.resume();
   return ctx.state === "running";
@@ -69,13 +85,32 @@ function noise(ac, seconds) {
   return buf;
 }
 
+// How loud the output is right now, 0..1 (RMS, scaled), for the visuals.
+export function level() {
+  if (!analyser) return 0;
+  analyser.getFloatTimeDomainData(levelBuf);
+  let sum = 0;
+  for (let i = 0; i < levelBuf.length; i++) sum += levelBuf[i] * levelBuf[i];
+  return Math.min(1, Math.sqrt(sum / levelBuf.length) * 1.8);
+}
+
+// The loudest sample in the latest block, for checking against clipping.
+export function peak() {
+  if (!analyser) return 0;
+  analyser.getFloatTimeDomainData(levelBuf);
+  let top = 0;
+  for (let i = 0; i < levelBuf.length; i++) top = Math.max(top, Math.abs(levelBuf[i]));
+  return top;
+}
+
 // Strike the gong.
 //   gong, mallet: from gongs.js
 //   size: gong size multiple (scales the pitch)
 //   r: where it landed, 0 centre .. 1 rim
 //   strength: 0..1
+//   pan: -1 left .. 1 right, where on the plate it landed
 // Returns the voice's rough duration in seconds, or 0 when audio is locked.
-export function strike({ gong, mallet, size, r, strength }) {
+export function strike({ gong, mallet, size, r, strength, pan = 0 }) {
   if (!unlocked()) return 0;
   const t = ctx.currentTime;
   const f0 = fundamentalHz(gong, size);
@@ -84,7 +119,16 @@ export function strike({ gong, mallet, size, r, strength }) {
   const nodes = [];
   const out = ctx.createGain();
   out.gain.value = amp;
-  out.connect(master);
+  // a hit on the left of the plate sits a little left
+  let sink = master;
+  if (ctx.createStereoPanner) {
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan)) * 0.5;
+    panner.connect(master);
+    sink = panner;
+    nodes.push(panner);
+  }
+  out.connect(sink);
   nodes.push(out);
   const n = gong.partials.length;
   const longest = gong.lowDecay * Math.pow(size, 0.5) * (0.6 + 0.4 * strength);
@@ -143,6 +187,71 @@ export function strike({ gong, mallet, size, r, strength }) {
     src.start(t);
     src.stop(t + mallet.contact + 0.1);
     nodes.push(src, bp, env);
+  }
+
+  // the wash: a hard hit on a big bronze plate roars, a band of noise that
+  // swells in behind the attack and hangs on
+  const wash = shimmer * Math.pow(strength, 1.6) * (0.5 + 0.5 * mallet.hardness);
+  if (wash > 0.04) {
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    src.loop = true;
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 1400 * Math.pow(size, -0.4) * (0.8 + 0.5 * strength);
+    bp.Q.value = 0.7;
+    const env = ctx.createGain();
+    const peakAt = t + 0.08 + 0.35 * (1 - strength);
+    const hang = 1.2 + 2.2 * strength * Math.sqrt(size);
+    env.gain.setValueAtTime(0.0005, t);
+    env.gain.exponentialRampToValueAtTime(wash * 0.2, peakAt);
+    env.gain.setTargetAtTime(0, peakAt, hang / 4.6);
+    src.connect(bp);
+    bp.connect(env);
+    env.connect(out);
+    src.start(t);
+    src.stop(t + hang + 1);
+    nodes.push(src, bp, env);
+  }
+
+  // the thump: a soft mallet hit hard puts weight into the plate, a short
+  // low sine under the fundamental
+  const thump = (1 - mallet.hardness) * Math.pow(strength, 2) * (1 - 0.6 * r);
+  if (thump > 0.05) {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    const hz = Math.max(32, f0 * 0.5);
+    osc.frequency.setValueAtTime(hz * 1.6, t);
+    osc.frequency.exponentialRampToValueAtTime(hz, t + 0.06);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(thump * 0.55, t + 0.008);
+    env.gain.exponentialRampToValueAtTime(0.0005, t + 0.22);
+    osc.connect(env);
+    env.connect(out);
+    osc.start(t);
+    osc.stop(t + 0.3);
+    nodes.push(osc, env);
+  }
+
+  // the ping: a hard head leaves a metallic click of its own, two high
+  // inharmonic sines that die at once
+  if (mallet.hardness > 0.6) {
+    const ping = (mallet.hardness - 0.6) / 0.4 * (0.3 + 0.7 * strength);
+    for (const ratio of [1, 1.47]) {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = (2600 + 1200 * mallet.hardness) * ratio * (0.95 + Math.random() * 0.1);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(ping * 0.18, t + 0.002);
+      env.gain.exponentialRampToValueAtTime(0.0005, t + 0.05 + 0.05 * strength);
+      osc.connect(env);
+      env.connect(out);
+      osc.start(t);
+      osc.stop(t + 0.15);
+      nodes.push(osc, env);
+    }
   }
 
   const voice = {
