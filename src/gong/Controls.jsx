@@ -4,17 +4,21 @@ import { GONGS, MALLETS } from "./gongs.js";
 import { layout } from "./useGong.js";
 
 // Gestures only, no buttons. Playing is the whole of the main screen: a
-// swinging hand strikes, an open palm damps, and one gesture opens the
-// settings. Everything that changes the gong lives behind it, so a hand
-// that is banging cannot also change the gong by accident.
-//   play    any moving hand strikes; Open Palm (held) -> damp;
+// swinging arm strikes, an open palm damps, and one gesture opens the
+// settings. Everything that changes the gong lives behind it, and nothing
+// strikes there, so setting up and banging never mix. A closed fist is the
+// way back, as it is in the sky.
+//   play    a swinging arm strikes the centre; Open Palm (held) -> damp;
 //           Victory (held) -> adjust
 //   adjust  Thumb Up/Down (held) -> next/previous gong, Victory (held) -> next mallet,
 //           two pointed fingers pinching -> resize, two Open Palms (held) -> gong bath,
-//           Open Palm (held) -> done, back to play. A swing still strikes, to try it.
-//   bath    the gong plays itself; a hand still strikes; Thumb Up (held) -> next gong,
-//           Open Palm (held) -> stop, back to play
+//           Closed Fist (held) -> back to play. No strikes.
+//   bath    the gong plays itself; an arm still strikes; Thumb Up (held) -> next gong,
+//           Open Palm (held) -> damp, Closed Fist (held) -> stop, back to play
 // Not a wave anywhere: swinging at the gong twice is a wave.
+// A hold only counts while the hand is still (STILL_HOLD), so an arm mid-swing
+// with an open hand or a fist never damps or leaves the mode by accident.
+const STILL_HOLD = 0.5; // frame widths per second
 export const BATH_MIN_MS = 1800;
 export const BATH_MAX_MS = 4200;
 
@@ -22,9 +26,9 @@ export const ACCENT = { bronze: "#b4732f", teal: "#2f8f83", indigo: "#4b5bb5" };
 const UI = {
   play: {
     title: "Play", color: ACCENT.bronze,
-    hint: "Swing a hand at the gong",
+    hint: "Swing an arm to strike the gong",
     controls: [
-      ["Swing a hand at it", "Strike. Faster is louder, the rim is brighter", "strike"],
+      ["Swing an arm", "Strike the centre. Faster is louder", "strike"],
       ["Hold an open palm", "Damp it", "Open_Palm"],
       ["Hold two fingers up", "Adjust the gong and mallet", "Victory"],
     ],
@@ -39,29 +43,30 @@ const UI = {
       ["Hold a thumb down", "Previous gong", "Thumb_Down"],
       ["Hold two fingers up", "Next mallet", "Victory"],
       ["Pinch two pointed fingers", "Resize the gong", "resize"],
-      ["Swing a hand at it", "Try it", "strike"],
       ["Hold two open palms", "Gong bath", TWO_PALMS],
-      ["Hold an open palm", "Done, back to playing", "Open_Palm"],
+      ["Hold a closed fist", "Back to playing", "Closed_Fist"],
     ],
-    gestures: [TWO_PALMS, "Thumb_Up", "Thumb_Down", "Victory", "Open_Palm"],
+    gestures: [TWO_PALMS, "Thumb_Up", "Thumb_Down", "Victory", "Closed_Fist"],
     live: ["Pinch"],
   },
   bath: {
     title: "Gong bath", color: ACCENT.indigo,
     hint: "The gong plays itself",
     controls: [
-      ["Swing a hand at it", "Join in", "strike"],
+      ["Swing an arm", "Join in", "strike"],
       ["Hold a thumb up", "Next gong", "Thumb_Up"],
-      ["Hold an open palm", "Stop the bath", "Open_Palm"],
+      ["Hold an open palm", "Damp it", "Open_Palm"],
+      ["Hold a closed fist", "Stop the bath", "Closed_Fist"],
     ],
-    gestures: ["Thumb_Up", "Open_Palm"],
+    gestures: ["Thumb_Up", "Open_Palm", "Closed_Fist"],
     live: [],
   },
 };
 
-// gong: from useGong. onHands: per-frame hands. live / liveLabel: what the
-// stage is doing right now. overlayRef: { scale, badge } for the resize band.
-export default function Controls({ gong, onHands, live = null, liveLabel = null, overlayRef = null, onMode }) {
+// gong: from useGong. onHands / onPose: per-frame hands and body. live /
+// liveLabel: what the stage is doing right now. overlayRef: { scale, badge,
+// swing } for the resize band and the wrist rings.
+export default function Controls({ gong, onHands, onPose, live = null, liveLabel = null, overlayRef = null, onMode }) {
   const [mode, setMode] = useState("play");
   const modeRef = useRef(mode);
   modeRef.current = mode;
@@ -128,12 +133,13 @@ export default function Controls({ gong, onHands, live = null, liveLabel = null,
       if (g === "Thumb_Down") return gong.stepGong(-1);
       if (g === "Victory") return gong.stepMallet(1);
       if (g === TWO_PALMS) return setMode("bath");
-      if (g === "Open_Palm") return setMode("play");
+      if (g === "Closed_Fist") return setMode("play");
       return;
     }
     if (m === "bath") {
       if (g === "Thumb_Up") return gong.stepGong(1);
-      if (g === "Open_Palm") {
+      if (g === "Open_Palm") return gong.damp();
+      if (g === "Closed_Fist") {
         gong.damp();
         return setMode("play");
       }
@@ -174,9 +180,9 @@ export default function Controls({ gong, onHands, live = null, liveLabel = null,
       if (e.key === "+" || e.key === "=") return act("resize", () => gong.scaleSize(1.12));
       if (e.key === "-" || e.key === "_") return act("resize", () => gong.scaleSize(1 / 1.12));
       if (e.key === "m") return act("Open_Palm", () => gong.damp());
-      if (e.key === "a") return act(m === "play" ? "Victory" : "Open_Palm", () => setMode(m === "adjust" ? "play" : "adjust"));
+      if (e.key === "a") return act(m === "play" ? "Victory" : "Closed_Fist", () => setMode(m === "adjust" ? "play" : "adjust"));
       if (e.key === "b") return act(TWO_PALMS, () => setMode("bath"));
-      if (e.key === "Escape") return act("Open_Palm", () => { if (m === "bath") gong.damp(); setMode("play"); });
+      if (e.key === "Escape") return act("Closed_Fist", () => { if (m === "bath") gong.damp(); setMode("play"); });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -216,13 +222,16 @@ export default function Controls({ gong, onHands, live = null, liveLabel = null,
         liveGestures={ui.live}
         onGesture={handleGesture}
         onHands={onHands}
+        pose
+        onPose={onPose}
+        stillHolds={STILL_HOLD}
         live={live}
         liveLabel={liveLabel}
         viewRef={overlayRef}
         event={event}
       />
 
-      <p className="foot">No camera? Click or tap the gong to strike it, drag across it to swing, scroll to resize. Space strikes, a opens Adjust, the arrow keys change the gong, s the mallet, m damps, b starts the bath, Esc goes back. {MALLETS.length} mallets, {GONGS.length} gongs.</p>
+      <p className="foot">No camera? Click or tap the gong to strike it, drag across it to swing, scroll to resize. Space strikes, a opens and closes Adjust, the arrow keys change the gong, s the mallet, m damps, b starts the bath, Esc goes back. {MALLETS.length} mallets, {GONGS.length} gongs.</p>
     </aside>
   );
 }

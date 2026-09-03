@@ -1,17 +1,22 @@
-// Dev flags. NO_MODELS skips the MediaPipe gesture model so the page is up in
-// a second: open the page with ?nomodels, or start the dev server with
-// VITE_NO_MODELS=1. The kiosk reports "ready" with a stub that returns no
-// hands, so the window.__view / __kiosk dev hooks still drive everything.
+// Dev flags. NO_MODELS skips the MediaPipe models so the page is up in a
+// second: open the page with ?nomodels, or start the dev server with
+// VITE_NO_MODELS=1. The kiosk reports "ready" with stubs that return no
+// hands and no body, so the window.__view / __kiosk dev hooks still drive
+// everything.
 //
-// The stub also reads window.__fake: a list of hands to pretend the camera
+// The hand stub reads window.__fake: a list of hands to pretend the camera
 // sees, each { gesture, score, x, y, size, grab, hand }, so a headless test
 // can walk the real kiosk pipeline (landmarks, Grab detection, hand size,
 // overlays). x, y is the palm centre and size the palm length, all as
 // fractions of the video frame; grab puts the index tip on the thumb tip.
+// The body stub reads window.__fakeBody: one body as { x, y, size, left,
+// right } where x, y is the middle of the shoulders, size the shoulder
+// width, and left / right the wrists as { x, y, z } (the person's left is on
+// the right of the raw frame, like a real camera). Null for nobody.
 export const NO_MODELS =
   new URLSearchParams(window.location.search).has("nomodels") || import.meta.env.VITE_NO_MODELS === "1";
 
-if (NO_MODELS) console.info("[dev] nomodels: skipping the gesture model");
+if (NO_MODELS) console.info("[dev] nomodels: skipping the gesture and body models");
 
 // 21 landmarks for a flat, upright hand: wrist below the palm centre, four
 // fingers fanned above it, thumb out to the side.
@@ -45,6 +50,37 @@ export const STUB_GESTURE_RECOGNIZER = {
       gestures: fake.map((h) => [{ categoryName: h.gesture || "None", score: h.score ?? 0.9 }]),
       handedness: fake.map((h, i) => [{ categoryName: h.hand || (i === 0 ? "Right" : "Left") }]),
     };
+  },
+  close() {},
+};
+
+// 33 body landmarks for one person facing the camera: shoulders either
+// side of (x, y), hips below, elbows halfway to the wrists. Everything else
+// sits on the chest with no visibility, so a consumer that checks
+// visibility ignores it.
+export function fakeBody({ x, y, size = 0.3, left = null, right = null }) {
+  const half = size / 2;
+  const pt = (px, py, z = 0, visibility = 1) => ({ x: px, y: py, z, visibility });
+  const lm = Array.from({ length: 33 }, () => pt(x, y + size * 0.6, 0, 0));
+  lm[0] = pt(x, y - size * 0.55); // nose
+  lm[11] = pt(x + half, y); // left shoulder (image right)
+  lm[12] = pt(x - half, y); // right shoulder
+  lm[23] = pt(x + half * 0.7, y + size * 1.5); // hips
+  lm[24] = pt(x - half * 0.7, y + size * 1.5);
+  const lw = left || { x: x + size * 0.6, y: y + size * 1.2, z: 0 };
+  const rw = right || { x: x - size * 0.6, y: y + size * 1.2, z: 0 };
+  lm[15] = pt(lw.x, lw.y, lw.z || 0);
+  lm[16] = pt(rw.x, rw.y, rw.z || 0);
+  lm[13] = pt((lm[11].x + lw.x) / 2, (lm[11].y + lw.y) / 2, (lw.z || 0) / 2);
+  lm[14] = pt((lm[12].x + rw.x) / 2, (lm[12].y + rw.y) / 2, (rw.z || 0) / 2);
+  return lm;
+}
+
+// What the pose task returns: nobody, or window.__fakeBody.
+export const STUB_POSE_LANDMARKER = {
+  detectForVideo() {
+    const body = window.__fakeBody;
+    return { landmarks: body ? [fakeBody(body)] : [], worldLandmarks: [] };
   },
   close() {},
 };

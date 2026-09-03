@@ -22,7 +22,9 @@ detections and the `window.__view` / `__kiosk` hooks still drive the sky. Set
 `window.__fake = [{ gesture: "Open_Palm", x: 0.5, y: 0.5, size: 0.2 }]` and
 the stub recognizer synthesises landmarks for those hands, so a headless run
 (Playwright with Chromium's `--use-fake-device-for-media-stream`) exercises
-the real kiosk pipeline including the overlays. See `src/devFlags.js`.
+the real kiosk pipeline including the overlays. `window.__fakeBody` does the
+same for the body model (`{ x, y, size, left, right }`: shoulders and
+wrists). See `src/devFlags.js`.
 `scripts/check-gestures.mjs` does exactly that for every control and saves
 screenshots; its header says how to run it.
 
@@ -86,12 +88,16 @@ palms, `t` for a wave and `Esc` for a fist (`KEYS` in `src/Controls.jsx`).
 ## Gong
 
 `/gong/` (`gong/index.html`, `src/gong/`). A gong hangs in a frame on the
-left; the kiosk on the right is the same one the sky uses. Any hand that is
-not in a hold pose holds the mallet: the head follows the palm (mirrored,
-amplified so the edge of the frame reaches the edge of the stage) and a fast
-swing over the plate strikes it where the swing peaks. Faster is louder, and
-pushing the hand at the camera counts as swinging at the gong. The rim rings
-brighter than the centre, a bigger gong rings lower and longer.
+left; the kiosk on the right is the same one the sky uses, with the body
+model (MediaPipe Pose Landmarker, lite) running beside the hand model. Each
+arm holds a mallet that rests on its side of the gong: swing the arm and the
+mallet strikes the centre where the swing peaks (wrist speed in shoulder
+widths per second, so distance from the camera does not matter). Where the
+hand is does not matter either; there is nothing to aim. Faster is louder,
+and a punch at the camera counts as a swing. Holds come from the hand model
+and only count while the hand is still, so an arm mid-swing with an open
+hand or a fist never damps or leaves the mode. A bigger gong rings lower
+and longer.
 
 - `src/gong/gongs.js`: six gongs (chau, symphonic, wind, Tibetan, iron,
   moon) and five mallets (wool, felt, rubber, wood, steel) as pure data:
@@ -111,28 +117,33 @@ brighter than the centre, a bigger gong rings lower and longer.
   says so until it has.
 - `src/gong/useGong.js`: selection (gong, mallet, size), physics (pendulum
   swing, push-back, the plate rocking about the axis across the hit, a jolt
-  of the whole stage on a hard hit, flash, ripples, glints, sparks, the
-  strength popup) and `strike()`, which every source goes through: hands,
-  mouse, touch, keys and the bath. One mallet per holder (each hand, the
-  mouse), with a short trail for the swoosh. `layout()` says where the gong
-  is on the stage.
-- `src/gong/useStrikeGestures.js`: hands to mallets and strikes, one mallet
-  per hand so two hands play two-handed; two pointed fingers pinching resize
-  the gong.
+  of the whole stage on a hard hit, flash, ripples, glints, sparks) and
+  `strike()`, which every source goes through: arms, mouse, touch, keys and
+  the bath. One mallet per holder (each arm, the mouse), with a short trail
+  for the swoosh. A body mallet is not steered: it rests beside the gong,
+  cocks back as the arm winds up and flies to the centre on a hit.
+  `layout()` says where the gong is on the stage.
+- `src/gong/useStrikeGestures.js`: wrists to strikes (peak of the wrist's
+  speed, one mallet per arm so two arms play two-handed) and two pointed
+  fingers pinching to resize the gong. The thresholds (`STRIKE_SPEED`,
+  `FULL_SPEED`, in shoulder widths per second) are at the top.
+- `src/usePoseLandmarker.js`: the body model, loaded only by kiosks that
+  ask for it (`pose` prop); the sky does not pay for it. `src/Kiosk.jsx`
+  draws the arms and shoulders under the hands, rings a swinging wrist, and
+  reports the wrists and shoulder width upward each frame.
 - `src/gong/GongStage.jsx`: the canvas. Room and halo, frame, ropes, the gong
   with its rim, hammer marks, lacquer, boss, ripples, rocking light and
-  sheen, a rim of light that rings with the sound, sparks, the mallets,
-  the popups.
-- Modes: PLAY (bronze) is the whole of the main screen: swing to strike,
-  hold an open palm to damp, hold two fingers up for ADJUST (teal), where
-  everything that changes the gong lives so a banging hand cannot change it
-  by accident: a thumb up or down for the next or previous gong, two fingers
-  up for the next mallet, two pointed fingers pinching to resize the gong
-  inside its fixed frame, two open palms for the GONG BATH (indigo), an open
-  palm when done. In the bath the gong plays itself with slow, soft strikes,
-  every fourth louder, the odd pair or roll, and moves on to the next gong
-  and mallet every eighth one. Not a wave anywhere: swinging at the gong
-  twice is a wave.
+  sheen, a rim of light that rings with the sound, sparks, the mallets.
+- Modes: PLAY (bronze) is the whole of the main screen: swing an arm to
+  strike, hold an open palm to damp, hold two fingers up for ADJUST (teal),
+  where everything that changes the gong lives and nothing strikes: a thumb
+  up or down for the next or previous gong, two fingers up for the next
+  mallet, two pointed fingers pinching to resize the gong inside its fixed
+  frame, two open palms for the GONG BATH (indigo), a closed fist to go
+  back. In the bath the gong plays itself with slow, soft strikes, every
+  fourth louder, the odd pair or roll, and moves on to the next gong and
+  mallet every eighth one; an arm joins in, a palm damps, a fist stops it.
+  Not a wave anywhere: swinging at the gong twice is a wave.
 
 Without a camera: click or tap the gong, drag across it to swing, scroll to
 resize; Space strikes, `a` opens Adjust, the arrow keys change the gong, `s`

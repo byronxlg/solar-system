@@ -6,7 +6,6 @@ import { level } from "./audio.js";
 // The stage: a 2D canvas with the gong hanging in its frame. The gong
 // (useGong) keeps the physics; this draws from its refs every frame and
 // feeds the mouse and touch in as strikes.
-const FONT = '"Avenir Next", "Avenir", "Helvetica Neue", system-ui, sans-serif';
 
 // Seeded pseudo-random so the hammer marks are the same every load.
 function mulberry(seed) {
@@ -80,7 +79,6 @@ const DRAG_FULL = 3;
       drawGong(ctx, view);
       drawSparks(ctx, view);
       for (const id in gong.malletsRef.current) drawMallet(ctx, view, gong.malletsRef.current[id]);
-      drawPopups(ctx, view);
       propsRef.current.onFrame?.(view);
     };
     frameId = requestAnimationFrame(tick);
@@ -492,10 +490,10 @@ function drawSparks(ctx, { geo, phys, now }) {
   }
 }
 
-// The mallet follows whoever holds it: shaft in from below, on the side
-// the mallet is on, leaning into its swing; head at the hand, a shadow on
-// the plate when it is over the gong, and a recoil along the shaft after a
-// hit.
+// The mallet: shaft in from below, on the side the mallet is on, leaning
+// into its swing; a shadow on the plate when the head is over the gong,
+// and a recoil along the shaft after a hit. The mouse mallet's head is at
+// the pointer; a body mallet keeps its side and is placed by useGong.
 function drawMallet(ctx, { geo, now, mallet, w, h }, m) {
   if (now - m.at > 1500) return;
   const { cx, cy, R } = geo;
@@ -503,7 +501,7 @@ function drawMallet(ctx, { geo, now, mallet, w, h }, m) {
   const fade = Math.min(1, (1500 - (now - m.at)) / 300);
   // the shaft comes in from below, from the side the head is on, and the
   // head leads the swing so the shaft trails the motion
-  const side = m.x < cx ? -1 : 1;
+  const side = m.side || (m.x < cx ? -1 : 1);
   const lean = Math.max(-0.55, Math.min(0.55, (-m.vx / Math.max(1, w)) * 0.35));
   const angle = Math.PI / 2 - side * 0.58 + lean;
   const dirX = Math.cos(angle);
@@ -614,29 +612,6 @@ function drawMallet(ctx, { geo, now, mallet, w, h }, m) {
     ctx.restore();
   }
   ctx.restore();
-}
-
-// The hit's strength, rising off the plate and fading, like the number on
-// a strongman's bell.
-function drawPopups(ctx, { phys, now, geo }) {
-  for (const pp of phys.popups) {
-    const k = (now - pp.at) / 900;
-    const rise = geo.m * 0.12 * (1 - Math.pow(1 - k, 2));
-    const alpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
-    const font = Math.max(14, geo.m * (0.04 + 0.035 * pp.strength)) * (k < 0.12 ? 0.7 + 0.3 * (k / 0.12) : 1);
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.font = `800 ${font}px ${FONT}`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = font * 0.18;
-    ctx.strokeStyle = "rgba(21,16,12,0.85)";
-    ctx.strokeText(pp.text, pp.x, pp.y - rise);
-    ctx.fillStyle = pp.strength > 0.8 ? "#ffd166" : "#fff3dc";
-    ctx.fillText(pp.text, pp.x, pp.y - rise);
-    ctx.restore();
-  }
 }
 
 function hexToRgb(hex) {
