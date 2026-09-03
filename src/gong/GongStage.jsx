@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { GONGS, MALLETS } from "./gongs.js";
 import { layout } from "./useGong.js";
 import { level } from "./audio.js";
+import { drawScene } from "./scenes.js";
 
 // The stage: a 2D canvas with the gong hanging in its frame. The gong
 // (useGong) keeps the physics; this draws from its refs every frame and
@@ -146,7 +147,7 @@ const DRAG_FULL = 3;
   function onUp(e) {
     const pr = pointerRef.current;
     const now = performance.now();
-    if (pr.down && pr.armed && pr.speed >= DRAG_STRIKE && now - pr.lastStrike > 80 && now - pr.t < 80) {
+    if (pr.down && pr.armed && pr.speed >= DRAG_STRIKE && now - pr.lastStrike > 80 && now - pr.t < 120) {
       const { cx, cy, R } = layout(gong.selRef.current.size, gong.sizeRef.current);
       if (Math.hypot(pr.x - cx, pr.y - cy) / R <= 1.08) {
         const strength = Math.min(1, Math.max(0.12, (pr.speed - DRAG_STRIKE * 0.6) / (DRAG_FULL - DRAG_STRIKE * 0.6)));
@@ -184,17 +185,21 @@ const DRAG_FULL = 3;
   );
 }
 
-// Warm dark hall: a wash of light behind the gong that brightens with the
-// hit, a floor line, a vignette.
-function drawRoom(ctx, { w, h, phys, theme, geo, loud }) {
-  ctx.fillStyle = "#15100c";
-  ctx.fillRect(-w, -h, w * 3, h * 3);
-  const g = ctx.createRadialGradient(geo.cx, geo.cy, geo.R * 0.4, geo.cx, geo.cy, Math.max(w, h) * 0.8);
-  g.addColorStop(0, `rgba(120,80,40,${0.35 + phys.flash * 0.35})`);
-  g.addColorStop(0.5, "rgba(60,40,24,0.35)");
-  g.addColorStop(1, "rgba(8,6,4,0.9)");
-  ctx.fillStyle = g;
-  ctx.fillRect(-w, -h, w * 3, h * 3);
+// The backdrop (scenes.js), then what every scene shares: the flash of a
+// hit on everything behind the gong, the gong's halo breathing with the
+// sound, and the floor the frame stands on.
+function drawRoom(ctx, view) {
+  const { w, h, phys, theme, geo, loud, sel } = view;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(-w, -h, w * 3, h * 3); // behind the jolt
+  const scene = drawScene(ctx, sel.scene, view);
+  if (phys.flash > 0) {
+    const fg = ctx.createRadialGradient(geo.cx, geo.cy, geo.R * 0.4, geo.cx, geo.cy, Math.max(w, h) * 0.8);
+    fg.addColorStop(0, `rgba(255,230,190,${0.3 * phys.flash})`);
+    fg.addColorStop(1, "rgba(255,230,190,0)");
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, 0, w, h);
+  }
   // the halo: the gong's colour on the wall behind it, breathing with the sound
   const glow = 0.12 + phys.flash * 0.2 + loud * 0.55;
   const tint = ctx.createRadialGradient(geo.cx, geo.cy, geo.R * 0.85, geo.cx, geo.cy, geo.R * (1.8 + loud * 0.8));
@@ -206,11 +211,11 @@ function drawRoom(ctx, { w, h, phys, theme, geo, loud }) {
   // floor
   const floorY = geo.floorY;
   const fl = ctx.createLinearGradient(0, floorY, 0, h);
-  fl.addColorStop(0, "rgba(40,28,18,0.9)");
-  fl.addColorStop(1, "rgba(12,8,5,1)");
+  fl.addColorStop(0, scene.floor[0]);
+  fl.addColorStop(1, scene.floor[1]);
   ctx.fillStyle = fl;
   ctx.fillRect(0, floorY, w, h - floorY);
-  ctx.fillStyle = "rgba(255,200,140,0.08)";
+  ctx.fillStyle = scene.line;
   ctx.fillRect(0, floorY, w, 1.5);
 }
 
@@ -309,6 +314,20 @@ function drawGong(ctx, view) {
     ctx.scale(1 - 0.12 * Math.abs(rock), 1);
     ctx.rotate(-ra);
   }
+  // what lies beyond the rim: a corona, a photon ring, the back of a ring
+  if (theme.corona) drawCorona(ctx, R, now, view.loud);
+  if (theme.disc) {
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,170,90,${0.6 + 0.3 * Math.sin(now / 500)})`;
+    ctx.lineWidth = Math.max(2, R * 0.03);
+    ctx.shadowColor = "#ff9a40";
+    ctx.shadowBlur = R * 0.12;
+    ctx.beginPath();
+    ctx.arc(0, 0, R * 1.05, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  if (theme.ring) drawRing(ctx, theme, R, "back");
   // shadow on the wall
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.beginPath();
@@ -383,6 +402,7 @@ function drawGong(ctx, view) {
     ctx.arc(0, 0, br, 0, Math.PI * 2);
     ctx.fill();
   }
+  drawFeatures(ctx, view, faceR);
   // ripples from each hit, expanding and fading
   for (const rp of phys.ripples) {
     const age = (now - rp.at) / 1000;
@@ -468,6 +488,7 @@ function drawGong(ctx, view) {
     ctx.stroke();
     ctx.shadowBlur = 0;
   }
+  if (theme.ring) drawRing(ctx, theme, R, "front");
   // hooks
   for (const s of [-1, 1]) {
     const a = -Math.PI / 2 + s * 0.33;
@@ -475,6 +496,176 @@ function drawGong(ctx, view) {
     ctx.beginPath();
     ctx.arc(Math.cos(a) * R * 0.92, Math.sin(a) * R * 0.92, Math.max(3, R * 0.03), 0, Math.PI * 2);
     ctx.fill();
+  }
+  ctx.restore();
+}
+
+// The planets' faces: bands, a storm, craters, land and cloud, an
+// accretion disc. Seeded per gong so the craters and the continents stay
+// put. Drawn inside the face clip in unit-radius coordinates scaled by
+// faceR; the face gradient is already under them, so the lighting carries.
+const FEATURES = GONGS.map((g, gi) => {
+  const rand = mulberry(77 + gi);
+  const scatter = (d) => {
+    const a = rand() * Math.PI * 2;
+    const r = Math.sqrt(rand()) * d;
+    return { x: Math.cos(a) * r, y: Math.sin(a) * r };
+  };
+  return {
+    craters: g.craters ? Array.from({ length: g.craters }, () => ({ ...scatter(0.85), r: 0.035 + rand() * 0.09 })) : null,
+    land: g.land ? Array.from({ length: 16 }, () => ({ ...scatter(0.9), rx: 0.1 + rand() * 0.22, ry: 0.08 + rand() * 0.16, rot: rand() * Math.PI, green: rand() > 0.35 })) : null,
+    clouds: g.clouds ? Array.from({ length: 12 }, () => ({ y: -0.9 + rand() * 1.8, x: rand() * 2, len: 0.25 + rand() * 0.5, w: 0.025 + rand() * 0.045, a: 0.3 + rand() * 0.35, speed: 18000 + rand() * 22000 })) : null,
+  };
+});
+
+function drawFeatures(ctx, { theme, now, gi }, faceR) {
+  const f = FEATURES[gi];
+  if (theme.bands) {
+    for (const b of theme.bands) {
+      const bg = ctx.createLinearGradient(0, (b.y - b.h / 2) * faceR, 0, (b.y + b.h / 2) * faceR);
+      bg.addColorStop(0, hexA(b.color, 0));
+      bg.addColorStop(0.3, hexA(b.color, b.a));
+      bg.addColorStop(0.7, hexA(b.color, b.a));
+      bg.addColorStop(1, hexA(b.color, 0));
+      ctx.fillStyle = bg;
+      ctx.fillRect(-faceR, (b.y - b.h / 2) * faceR, faceR * 2, b.h * faceR);
+    }
+  }
+  if (theme.spot) {
+    const s = theme.spot;
+    const sg = ctx.createRadialGradient(s.x * faceR, s.y * faceR, 0, s.x * faceR, s.y * faceR, s.rx * faceR);
+    sg.addColorStop(0, hexA(s.color, 0.9));
+    sg.addColorStop(0.7, hexA(s.color, 0.7));
+    sg.addColorStop(1, hexA(s.color, 0));
+    ctx.fillStyle = sg;
+    ctx.beginPath();
+    ctx.ellipse(s.x * faceR, s.y * faceR, s.rx * faceR, s.ry * faceR, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (f.land) {
+    for (const l of f.land) {
+      ctx.fillStyle = l.green ? "rgba(74,132,62,0.9)" : "rgba(140,120,70,0.85)";
+      ctx.beginPath();
+      ctx.ellipse(l.x * faceR, l.y * faceR, l.rx * faceR, l.ry * faceR, l.rot, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // polar caps
+    for (const y of [-0.93, 0.93]) {
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.beginPath();
+      ctx.ellipse(0, y * faceR, faceR * 0.42, faceR * 0.14, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  if (theme.cap) {
+    ctx.fillStyle = "rgba(255,250,245,0.8)";
+    ctx.beginPath();
+    ctx.ellipse(0, -0.94 * faceR, faceR * 0.3, faceR * 0.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (f.craters) {
+    for (const c of f.craters) {
+      const r = c.r * faceR;
+      ctx.fillStyle = "rgba(0,0,0,0.22)";
+      ctx.beginPath();
+      ctx.arc(c.x * faceR, c.y * faceR, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.3)";
+      ctx.lineWidth = Math.max(1, r * 0.18);
+      ctx.beginPath();
+      ctx.arc(c.x * faceR, c.y * faceR, r * 0.92, Math.PI * 0.9, Math.PI * 1.9);
+      ctx.stroke();
+    }
+  }
+  if (f.clouds) {
+    ctx.lineCap = "round";
+    for (const c of f.clouds) {
+      const x = (((c.x + now / c.speed) % 2) - 1) * faceR;
+      ctx.strokeStyle = `rgba(255,255,255,${c.a})`;
+      ctx.lineWidth = c.w * faceR;
+      ctx.beginPath();
+      ctx.moveTo(x - c.len * faceR * 0.5, c.y * faceR);
+      ctx.lineTo(x + c.len * faceR * 0.5, c.y * faceR + c.w * faceR * 0.4);
+      ctx.stroke();
+    }
+  }
+  if (theme.disc) {
+    // the accretion disc: a hot ring inside the rim, brightest just off
+    // the hole, flickering, and the hole itself
+    const flick = 0.85 + 0.15 * Math.sin(now / 170) * Math.sin(now / 410);
+    const dg = ctx.createRadialGradient(0, 0, faceR * 0.55, 0, 0, faceR);
+    dg.addColorStop(0, "rgba(0,0,0,1)");
+    dg.addColorStop(0.08, `rgba(255,245,220,${0.95 * flick})`);
+    dg.addColorStop(0.25, `rgba(255,170,80,${0.85 * flick})`);
+    dg.addColorStop(0.6, `rgba(200,80,30,${0.5 * flick})`);
+    dg.addColorStop(1, "rgba(80,20,10,0.2)");
+    ctx.fillStyle = dg;
+    ctx.beginPath();
+    ctx.arc(0, 0, faceR, 0, Math.PI * 2);
+    ctx.fill();
+    // streaks of matter spiralling in
+    ctx.strokeStyle = `rgba(255,220,170,${0.25 * flick})`;
+    ctx.lineWidth = Math.max(1, faceR * 0.012);
+    for (let i = 0; i < 9; i++) {
+      const a0 = (i / 9) * Math.PI * 2 + now / 6000;
+      ctx.beginPath();
+      ctx.arc(0, 0, faceR * (0.62 + (i % 3) * 0.1), a0, a0 + 1.1);
+      ctx.stroke();
+    }
+  }
+}
+
+// Saturn's ring, in two halves: the back goes behind the gong, the front
+// over it. An ellipse seen at a tilt, in two bands with a gap.
+function drawRing(ctx, theme, R, half) {
+  const { inner, outer, tilt, color } = theme.ring;
+  ctx.save();
+  ctx.beginPath();
+  if (half === "back") ctx.rect(-R * 3, -R * 3, R * 6, R * 3);
+  else ctx.rect(-R * 3, 0, R * 6, R * 3);
+  ctx.clip();
+  const mid = inner + (outer - inner) * 0.5;
+  for (const [a, b, al] of [[inner, mid - 0.03, 0.6], [mid + 0.03, outer, 0.45]]) {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, R * b, R * b * tilt, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, R * a, R * a * tilt, 0, 0, Math.PI * 2, true);
+    ctx.fillStyle = hexA(color, al);
+    ctx.fill("evenodd");
+  }
+  // the ring's shadow on the front of the gong
+  if (half === "front") {
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.beginPath();
+    ctx.ellipse(0, R * 0.12, R * 0.98, R * 0.18, 0, 0, Math.PI);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// The Sun's corona: a glow well beyond the rim and a ring of flares that
+// flicker, brighter with the sound.
+function drawCorona(ctx, R, now, loud) {
+  const cg = ctx.createRadialGradient(0, 0, R * 0.9, 0, 0, R * (1.9 + loud * 0.5));
+  cg.addColorStop(0, `rgba(255,190,80,${0.55 + loud * 0.3})`);
+  cg.addColorStop(0.35, "rgba(255,140,40,0.22)");
+  cg.addColorStop(1, "rgba(255,120,30,0)");
+  ctx.fillStyle = cg;
+  ctx.fillRect(-R * 2.5, -R * 2.5, R * 5, R * 5);
+  ctx.save();
+  ctx.lineCap = "round";
+  const n = 16;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + now / 9000;
+    const len = R * (1.12 + 0.22 * Math.abs(Math.sin(now / 320 + i * 1.7)) + loud * 0.2);
+    const fg = ctx.createLinearGradient(Math.cos(a) * R * 0.95, Math.sin(a) * R * 0.95, Math.cos(a) * len, Math.sin(a) * len);
+    fg.addColorStop(0, "rgba(255,220,120,0.6)");
+    fg.addColorStop(1, "rgba(255,140,40,0)");
+    ctx.strokeStyle = fg;
+    ctx.lineWidth = R * 0.07;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * R * 0.95, Math.sin(a) * R * 0.95);
+    ctx.lineTo(Math.cos(a) * len, Math.sin(a) * len);
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -512,11 +703,12 @@ function drawMallet(ctx, { geo, now, mallet, w, h }, m) {
   const hy = m.y + dirY * recoil;
   ctx.save();
   ctx.globalAlpha = fade;
-  // the swoosh: a tapered trail behind a fast head
+  // the swoosh: a tapered trail behind a fast head. The body's mallet
+  // draws its whole swing in, fading with the hit, so the path shows.
   const trail = m.trail || [];
   if (trail.length > 2) {
     const speed = Math.hypot(m.vx, m.vy) / Math.max(1, w);
-    const k = Math.min(1, Math.max(0, (speed - 0.4) / 2.5));
+    const k = m.source === "body" ? Math.min(1, (m.hit || 0) * 1.4) : Math.min(1, Math.max(0, (speed - 0.4) / 2.5));
     if (k > 0) {
       ctx.lineCap = "round";
       for (let i = 1; i < trail.length; i++) {
