@@ -37,21 +37,32 @@ zoom, time) act every frame while the hand is in that pose.
 
 # Gong
 
-Any hand not in a hold pose holds the mallet. Held gestures fill a pill and
-fire once; strikes and resizing act every frame.
+Playing is the whole of the main screen. Any hand not in a hold pose holds a
+mallet (two hands, two mallets). Held gestures fill a pill and fire once;
+strikes and resizing act every frame. Everything that changes the gong is in
+Adjust, behind one gesture, so a hand that is banging cannot change the gong
+by accident.
 
 ## Play
 
 | Control | Action | Built |
 |---|---|---|
 | Swing a hand over the gong (or push it at the camera) | Strike where the swing peaks; faster is louder, the rim is brighter | yes |
+| Two hands, each swung | Two mallets, one per hand; hits sit left or right in the stereo field | yes |
+| Open palm, hold | Damp the gong (everything ringing fades out) | yes |
+| Two fingers up (Victory), hold | Adjust the gong and mallet | yes |
+
+## Adjust
+
+| Control | Action | Built |
+|---|---|---|
 | Thumb up, hold | Next gong | yes |
 | Thumb down, hold | Previous gong | yes |
 | Two fingers up (Victory), hold | Next mallet | yes |
-| Two pointed fingers, pinch in or out | Resize the gong (50% to 220% of its base diameter) | yes |
-| Open palm, hold | Damp the gong (everything ringing fades out) | yes |
+| Two pointed fingers, pinch in or out | Resize the gong (50% to 180% of its base diameter) inside the fixed frame | yes |
+| Swing a hand | Try it (strikes work here too) | yes |
 | Two open palms, hold | Gong bath | yes |
-| Two hands, each swung | Two mallets, one per hand; hits sit left or right in the stereo field | yes |
+| Open palm, hold | Done, back to Play | yes |
 
 ## Gong bath
 
@@ -64,9 +75,12 @@ fire once; strikes and resizing act every frame.
 
 ## Without a camera
 
-Click or tap the gong to strike it (a flick hits harder), scroll to resize.
-Space strikes near the centre, the arrow keys change the gong, `s` the
-mallet, `m` damps, `b` starts the bath, `Esc` stops it, `+` and `-` resize.
+Click or tap the gong to strike it (a flick hits harder), drag across it to
+swing (it strikes again where the drag peaks, or where a finger lifts off),
+scroll to resize. The keys act directly in any mode: Space strikes near the
+centre, `a` opens and closes Adjust, the arrow keys change the gong, `s` the
+mallet, `+` and `-` resize, `m` damps, `b` starts the bath, `Esc` goes back
+to Play.
 
 A wave is deliberately not a control here: swinging at the gong twice is a
 wave, and the bath must not start on its own while someone is banging.

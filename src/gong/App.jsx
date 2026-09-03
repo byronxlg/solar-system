@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import GongStage from "./GongStage.jsx";
 import Controls from "./Controls.jsx";
-import { useGong } from "./useGong.js";
+import { useGong, layout } from "./useGong.js";
 import { useStrikeGestures } from "./useStrikeGestures.js";
 import { MIRROR } from "../Kiosk.jsx";
 import { GONGS, MALLETS } from "./gongs.js";
@@ -12,6 +12,7 @@ export default function App() {
   const gong = useGong();
   const gestures = useStrikeGestures(gong);
   const [stage, setStage] = useState({ live: null, label: null }); // what the hands are doing to the gong right now
+  const [mode, setMode] = useState("play");
   const modeRef = useRef("play");
 
   function feedHands(hands, now) {
@@ -24,13 +25,15 @@ export default function App() {
         return { hand: h.hand || "Right", gesture: h.gesture, score: h.score ?? 1, x: MIRROR ? 1 - x : x, y: h.ny ?? h.y, tipX: MIRROR ? 1 - tx : tx, tipY: h.nty ?? h.ny ?? h.y, unit: h.unit ?? 0.2 };
       }),
       size,
-      now
+      now,
+      modeRef.current
     );
     setStage((prev) => (prev.live === r.live && prev.label === r.label ? prev : r));
   }
 
   const handleMode = useCallback((m) => {
     modeRef.current = m;
+    setMode(m);
     gestures.clear();
     setStage((prev) => (prev.live === null && prev.label === null ? prev : { live: null, label: null }));
   }, [gestures]);
@@ -49,6 +52,7 @@ export default function App() {
   // dev hook: __gong.strike(x, y, strength) in stage pixels, __gong.state()
   useEffect(() => {
     window.__gong = {
+      ...(window.__gong || {}), // the stage adds its own (pointer)
       strike: (x, y, strength = 0.7) => gong.strike({ x, y, strength, source: "dev" }),
       state: () => ({ ...gong.selRef.current, gong: GONGS[gong.selRef.current.gong].key, mallet: MALLETS[gong.selRef.current.mallet].key, cm: gong.cm, hits: gong.physRef.current.hits, lastHit: gong.physRef.current.lastHit, ringing: audio.ringing(), audio: audio.unlocked(), mode: modeRef.current }),
       phys: () => ({ ...gong.physRef.current }),
@@ -58,6 +62,7 @@ export default function App() {
         const el = document.querySelector(".stage-wrap");
         return { ...gong.sizeRef.current, ...(el ? { width: el.clientWidth, height: el.clientHeight } : {}) };
       },
+      geo: () => layout(gong.selRef.current.size, gong.sizeRef.current),
       setGong: gong.setGong,
       setMallet: gong.setMallet,
       setSize: gong.setSize,
@@ -71,7 +76,7 @@ export default function App() {
   });
 
   const title = `${gong.gong.name} · ${gong.cm} cm`;
-  const sub = stage.label || `${gong.mallet.name}${gong.hits ? ` · ${gong.hits} ${gong.hits === 1 ? "hit" : "hits"}` : ""}`;
+  const sub = stage.label || `${gong.mallet.name}${gong.hits ? ` · ${gong.hits} ${gong.hits === 1 ? "hit" : "hits"}` : ""}${gong.best ? ` · loudest ${Math.round(gong.best * 100)}%` : ""}`;
 
   return (
     <div className="app gong-app">
@@ -87,6 +92,7 @@ export default function App() {
             <span className="dot" />Tap anywhere to wake the gong's sound
           </button>
         )}
+        {mode !== "play" && (
         <article className="card" key={gong.gong.key + gong.mallet.key}>
           <header>
             <span className="swatch" style={{ "--body": gong.gong.color }} />
@@ -103,6 +109,7 @@ export default function App() {
           </dl>
           <p className="note">{gong.gong.note} {gong.mallet.note}</p>
         </article>
+        )}
       </div>
       <Controls gong={gong} onHands={feedHands} live={stage.live} liveLabel={stage.label} overlayRef={gestures.overlayRef} onMode={handleMode} />
     </div>

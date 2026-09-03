@@ -17,7 +17,6 @@ import * as audio from "./audio.js";
 //          "mouse"): where the head is on the stage in pixels, its velocity
 //          in pixels per second, when it was last moved, and its recoil
 
-export const SWING_HANG = 1.35; // where the gong hangs from, in radii above the centre
 
 export function useGong() {
   const selRef = useRef({ gong: 0, mallet: 0, size: 1, goalSize: 1 });
@@ -28,6 +27,7 @@ export function useGong() {
   const [malletIndex, setMalletIndex] = useState(0);
   const [cm, setCm] = useState(diameterCm(GONGS[0], 1));
   const [hits, setHits] = useState(0);
+  const [best, setBest] = useState(0); // the loudest hit so far, 0..1
   const [audioOn, setAudioOn] = useState(false);
 
   const setGong = useCallback((i) => {
@@ -97,7 +97,7 @@ export function useGong() {
       p.rockVel += weight;
     }
     if (s > 0.55) {
-      p.shake = Math.min(1, p.shake + (s - 0.55) * 2.2);
+      p.shake = Math.min(1, p.shake + (s - 0.55) * 2.2 * Math.min(1.4, sel.size));
       p.shakeSeed = Math.random() * 1000;
     }
     p.flash = Math.min(1, p.flash + 0.5 + s * 0.6);
@@ -128,6 +128,10 @@ export function useGong() {
     p.hits += 1;
     p.lastHit = { r: Math.min(1, r), angle: Math.atan2(dy, dx), strength: s, at: now, source };
     setHits(p.hits);
+    if (source !== "bath" && s > (p.best || 0)) {
+      p.best = s;
+      setBest(s);
+    }
     return p.lastHit;
   }, []);
 
@@ -194,15 +198,19 @@ export function useGong() {
   }, []);
 
   return useMemo(
-    () => ({ selRef, physRef, malletsRef, sizeRef, gongIndex, malletIndex, cm, hits, audioOn, gong: GONGS[gongIndex], mallet: MALLETS[malletIndex], setGong, stepGong, setMallet, stepMallet, setSize, scaleSize, holdMallet: mallet, strike, damp, track, wake }),
-    [gongIndex, malletIndex, cm, hits, audioOn, setGong, stepGong, setMallet, stepMallet, setSize, scaleSize, mallet, strike, damp, track, wake]
+    () => ({ selRef, physRef, malletsRef, sizeRef, gongIndex, malletIndex, cm, hits, best, audioOn, gong: GONGS[gongIndex], mallet: MALLETS[malletIndex], setGong, stepGong, setMallet, stepMallet, setSize, scaleSize, holdMallet: mallet, strike, damp, track, wake }),
+    [gongIndex, malletIndex, cm, hits, best, audioOn, setGong, stepGong, setMallet, stepMallet, setSize, scaleSize, mallet, strike, damp, track, wake]
   );
 }
 
-// Where the gong sits on a stage of this size, in pixels: centre and
-// radius. The gong grows with `size` until it fills the stage.
+// Where things are on a stage of this size, in pixels. The frame (beam,
+// posts, floor) is fixed; the gong hangs at a fixed centre and grows with
+// `size` inside it, up to just under the beam. m is the stage's shorter
+// side, the unit for everything that is not the gong (the mallets, text).
 export function layout(size, { width, height }) {
-  const base = Math.min(width, height) * 0.26;
-  const R = Math.min(base * size, Math.min(width, height) * 0.44);
-  return { cx: width / 2, cy: height * 0.54, R };
+  const m = Math.min(width, height);
+  const beamY = height * 0.13;
+  const cy = height * 0.54;
+  const R = Math.min(m * 0.2 * size, cy - beamY - m * 0.05, width * 0.46);
+  return { cx: width / 2, cy, R, beamY, span: Math.min(width * 0.42, height * 0.5), floorY: height * 0.93, m };
 }

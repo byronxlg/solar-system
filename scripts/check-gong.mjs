@@ -174,27 +174,57 @@ const state = () => ev(() => window.__gong.state());
   await sleep(1200);
 }
 
-// C. Pinch resizes the gong
+// C. Pinch resizes the gong, in Adjust only, and the frame stays put
 {
   const s0 = (await state()).goalSize;
-  await fake([{ gesture: "Pointing_Up", score: 0.9, x: 0.4, y: 0.5, size: 0.2 }, { gesture: "Pointing_Up", score: 0.9, x: 0.6, y: 0.5, size: 0.2, hand: "Left" }]);
-  await sleep(150);
-  await fake([{ gesture: "Pointing_Up", score: 0.9, x: 0.2, y: 0.5, size: 0.2 }, { gesture: "Pointing_Up", score: 0.9, x: 0.8, y: 0.5, size: 0.2, hand: "Left" }]);
-  await sleep(600);
+  const pinch = async () => {
+    await fake([{ gesture: "Pointing_Up", score: 0.9, x: 0.4, y: 0.5, size: 0.2 }, { gesture: "Pointing_Up", score: 0.9, x: 0.6, y: 0.5, size: 0.2, hand: "Left" }]);
+    await sleep(150);
+    await fake([{ gesture: "Pointing_Up", score: 0.9, x: 0.2, y: 0.5, size: 0.2 }, { gesture: "Pointing_Up", score: 0.9, x: 0.8, y: 0.5, size: 0.2, hand: "Left" }]);
+    await sleep(600);
+  };
+  await pinch();
+  check("pinch in Play does nothing", Math.abs((await state()).goalSize - s0) < 0.01, `size=${(await state()).goalSize.toFixed(2)} mode=${await ev(() => window.__kiosk.mode)}`);
+  await fake([]);
+  await sleep(300);
+  const g0 = await ev(() => window.__gong.geo());
+  await ev(() => window.__kiosk.setMode("adjust"));
+  await sleep(200);
+  await pinch();
   const s1 = await state();
-  check("pinch out grows the gong", s1.goalSize > s0 * 1.5, `size ${s0.toFixed(2)} -> ${s1.goalSize.toFixed(2)} (${s1.cm} cm)`);
+  check("pinch out in Adjust grows the gong", s1.goalSize > s0 * 1.5, `size ${s0.toFixed(2)} -> ${s1.goalSize.toFixed(2)} (${s1.cm} cm)`);
   const hud = await ev(() => document.querySelectorAll(".sky-hud .pill")[1].textContent);
   check("resize caption", /Resizing: \d+ cm/.test(hud), hud);
+  await sleep(600);
+  const g1 = await ev(() => window.__gong.geo());
+  check("the gong grows, the frame does not", g1.R > g0.R * 1.4 && g1.beamY === g0.beamY && g1.span === g0.span && g1.cy === g0.cy, `R ${g0.R.toFixed(0)} -> ${g1.R.toFixed(0)} beam ${g0.beamY} -> ${g1.beamY}`);
+  check("the big gong clears the beam", g1.cy - g1.R > g1.beamY, `top=${(g1.cy - g1.R).toFixed(0)} beam=${g1.beamY.toFixed(0)}`);
   await page.screenshot({ path: `${OUT}/g3-resize.png` });
   await fake([]);
   await sleep(300);
+  await ev(() => window.__gong.setSize(0.5));
+  await sleep(600);
+  await page.screenshot({ path: `${OUT}/g3b-small.png` });
   await ev(() => window.__gong.setSize(1));
+  await ev(() => window.__kiosk.setMode("play"));
   await sleep(300);
 }
 
-// D. Holds: thumb up changes the gong, victory the mallet, palm damps
+// D. Holds: in Play a thumb does nothing and two fingers open Adjust; in
+// Adjust a thumb changes the gong, two fingers the mallet, a palm is done;
+// a palm in Play damps
 {
   const g0 = (await state()).gong;
+  await ev(() => window.__kiosk.gesture("Thumb_Up"));
+  await sleep(100);
+  check("thumb up in Play does nothing", (await state()).gong === g0 && (await ev(() => window.__kiosk.mode)) === "play");
+  check("no card in Play", !(await page.$(".card")));
+  await fake([{ gesture: "Victory", score: 0.9, x: 0.5, y: 0.5, size: 0.2 }]);
+  await sleep(900);
+  await fake([]);
+  await sleep(100);
+  check("held two fingers open Adjust", (await ev(() => window.__kiosk.mode)) === "adjust");
+  await sleep(1600); // past the hold cooldown
   await ev(() => window.__kiosk.gesture("Thumb_Up"));
   await sleep(100);
   const g1 = (await state()).gong;
@@ -206,8 +236,12 @@ const state = () => ev(() => window.__gong.state());
   await ev(() => window.__kiosk.gesture("Victory"));
   await sleep(100);
   check("victory: next mallet", (await state()).mallet !== m0, `${m0} -> ${(await state()).mallet}`);
-  const card = await ev(() => document.querySelector(".card h2").textContent);
-  check("card names the gong", card === "Chau gong", card);
+  const card = await ev(() => document.querySelector(".card h2")?.textContent);
+  check("card names the gong in Adjust", card === "Chau gong", card);
+  await page.screenshot({ path: `${OUT}/g3c-adjust.png` });
+  await ev(() => window.__kiosk.gesture("Open_Palm"));
+  await sleep(100);
+  check("palm: done, back to Play", (await ev(() => window.__kiosk.mode)) === "play");
   const lay = await ev(() => window.__gong.layout());
   await page.mouse.click(lay.width / 2, lay.height * 0.54);
   await sleep(100);
@@ -237,14 +271,19 @@ const state = () => ev(() => window.__gong.state());
   await ev(() => { window.__gong.setGong(0); window.__gong.setMallet(0); window.__gong.damp(); });
 }
 
-// E. Two palms start the bath; it strikes on its own; a palm stops it
+// E. Two palms in Adjust start the bath; it strikes on its own; a palm stops it
 {
+  await ev(() => window.__kiosk.gesture("Two_Open_Palms"));
+  await sleep(100);
+  check("two palms in Play do nothing", (await ev(() => window.__kiosk.mode)) === "play");
+  await ev(() => window.__kiosk.setMode("adjust"));
+  await sleep(100);
   // through the real hold path: two open palms for the hold time
   await fake([{ gesture: "Open_Palm", score: 0.8, x: 0.35, y: 0.5, size: 0.2 }, { gesture: "Open_Palm", score: 0.8, x: 0.65, y: 0.5, size: 0.2, hand: "Left" }]);
   await sleep(900);
   await fake([]);
   await sleep(100);
-  check("two held palms start the bath", (await ev(() => window.__kiosk.mode)) === "bath");
+  check("two held palms in Adjust start the bath", (await ev(() => window.__kiosk.mode)) === "bath");
   // a hand swung back and forth at the gong is not a wave and does not change the mode
   await ev(() => window.__kiosk.setMode("play"));
   await sleep(100);
@@ -258,6 +297,8 @@ const state = () => ev(() => window.__gong.state());
   check("banging back and forth stays in play", (await ev(() => window.__kiosk.mode)) === "play", (await ev(() => window.__kiosk.mode)));
   await fake([]);
   await sleep(100);
+  await ev(() => { window.__kiosk.setMode("adjust"); });
+  await sleep(50);
   await ev(() => window.__kiosk.gesture("Two_Open_Palms"));
   await sleep(100);
   check("two palms (dev hook) start the bath", (await ev(() => window.__kiosk.mode)) === "bath");
@@ -271,7 +312,45 @@ const state = () => ev(() => window.__gong.state());
   check("palm stops the bath", (await ev(() => window.__kiosk.mode)) === "play");
 }
 
-// F. Keys and wheel
+// F. A drag is a swing: press, sweep fast across the plate, and it strikes
+// again where the sweep peaks; a slow drag does not
+{
+  const lay = await ev(() => window.__gong.layout());
+  const y = lay.height * 0.54;
+  const h0 = (await state()).hits;
+  await page.mouse.move(lay.width * 0.33, y);
+  await page.mouse.down();
+  await sleep(50);
+  check("press strikes", (await state()).hits === h0 + 1, `hits ${h0} -> ${(await state()).hits}`);
+  const h1 = (await state()).hits;
+  // slow across, then a fast sweep, then stop
+  for (let i = 0; i < 6; i++) { await page.mouse.move(lay.width * (0.33 + i * 0.01), y); await sleep(50); }
+  const hSlow = (await state()).hits;
+  check("a slow drag does not strike", hSlow === h1, `hits ${h1} -> ${hSlow}`);
+  // headless pointer events land about 80 ms apart, so the sweep takes big steps
+  for (let i = 0; i < 3; i++) { await page.mouse.move(lay.width * (0.39 + i * 0.14), y); }
+  await sleep(60);
+  await page.mouse.move(lay.width * 0.7, y);
+  await sleep(120);
+  const hFast = (await state()).hits;
+  check("a fast sweep strikes", hFast === hSlow + 1, `hits ${hSlow} -> ${hFast} source=${(await state()).lastHit?.source}`);
+  await page.screenshot({ path: `${OUT}/g6-drag.png` });
+  await page.mouse.up();
+  await sleep(300);
+  // a swipe that lifts off before it slows: the hit lands where it left
+  const hUp = (await state()).hits;
+  await page.mouse.move(lay.width * 0.6, y - 5);
+  await page.mouse.down();
+  await sleep(700); // the press hit, then time for the drag to re-arm
+  for (let i = 0; i < 3; i++) { await page.mouse.move(lay.width * (0.6 - i * 0.14), y); }
+  await page.mouse.up();
+  await sleep(200);
+  check("a lift mid-sweep still strikes", (await state()).hits === hUp + 2, `hits ${hUp} -> ${(await state()).hits}`);
+  const hud = await ev(() => document.querySelectorAll(".sky-hud .pill")[1].textContent);
+  check("hud shows the loudest hit", /loudest \d+%/.test(hud), hud);
+}
+
+// G. Keys and wheel
 {
   const h0 = (await state()).hits;
   await page.keyboard.press("Space");
@@ -281,6 +360,17 @@ const state = () => ev(() => window.__gong.state());
   await page.keyboard.press("+");
   await sleep(50);
   check("+ grows", (await state()).goalSize > s0);
+  const gk = (await state()).gong;
+  await page.keyboard.press("ArrowRight");
+  await sleep(50);
+  check("arrow changes the gong from Play", (await state()).gong !== gk);
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("a");
+  await sleep(50);
+  check("a opens Adjust", (await ev(() => window.__kiosk.mode)) === "adjust");
+  await page.keyboard.press("Escape");
+  await sleep(50);
+  check("Esc goes back to Play", (await ev(() => window.__kiosk.mode)) === "play");
   const lay = await ev(() => window.__gong.layout());
   await page.mouse.move(lay.width / 2, lay.height / 2);
   await page.mouse.wheel(0, 300);

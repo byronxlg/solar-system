@@ -123,17 +123,22 @@ brighter than the centre, a bigger gong rings lower and longer.
   with its rim, hammer marks, lacquer, boss, ripples, rocking light and
   sheen, a rim of light that rings with the sound, sparks, the mallets,
   the popups.
-- Modes: PLAY (bronze) and GONG BATH (indigo), where the gong plays itself
-  with slow, soft strikes, every fourth louder, the odd pair or roll, and
-  moves on to the next gong and mallet every eighth one. Hold a thumb up or
-  down for the next or previous gong, two fingers up for the next mallet, an
-  open palm to damp it, two open palms for the bath. Not a wave: swinging at
-  the gong twice is a wave.
+- Modes: PLAY (bronze) is the whole of the main screen: swing to strike,
+  hold an open palm to damp, hold two fingers up for ADJUST (teal), where
+  everything that changes the gong lives so a banging hand cannot change it
+  by accident: a thumb up or down for the next or previous gong, two fingers
+  up for the next mallet, two pointed fingers pinching to resize the gong
+  inside its fixed frame, two open palms for the GONG BATH (indigo), an open
+  palm when done. In the bath the gong plays itself with slow, soft strikes,
+  every fourth louder, the odd pair or roll, and moves on to the next gong
+  and mallet every eighth one. Not a wave anywhere: swinging at the gong
+  twice is a wave.
 
-Without a camera: click or tap the gong, scroll to resize; Space strikes,
-the arrow keys change the gong, `s` the mallet, `m` damps, `b` starts the
-bath, `+` and `-` resize. `scripts/check-gong.mjs` drives all of it headless
-the way `check-gestures.mjs` does for the sky.
+Without a camera: click or tap the gong, drag across it to swing, scroll to
+resize; Space strikes, `a` opens Adjust, the arrow keys change the gong, `s`
+the mallet, `m` damps, `b` starts the bath, `+` and `-` resize, `Esc` goes
+back. `scripts/check-gong.mjs` drives all of it headless the way
+`check-gestures.mjs` does for the sky.
 
 ## Deploying
 

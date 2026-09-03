@@ -3,32 +3,45 @@ import Kiosk, { TWO_PALMS } from "../Kiosk.jsx";
 import { GONGS, MALLETS } from "./gongs.js";
 import { layout } from "./useGong.js";
 
-// Gestures only, no buttons. Playing is the default; the gong bath returns
-// to playing when a palm stops it.
-//   play  a swinging hand strikes; Thumb Up/Down (held) -> next/previous gong,
-//         Victory (held) -> next mallet, two pointed fingers pinching -> resize,
-//         Open Palm (held) -> damp the gong, two Open Palms (held) -> gong bath.
-//         Not a wave: swinging at the gong twice is a wave, and the bath
-//         must not start on its own while someone is banging.
-//   bath  the gong plays itself; a hand still strikes; Thumb Up (held) -> next gong,
-//         Open Palm (held) -> stop
+// Gestures only, no buttons. Playing is the whole of the main screen: a
+// swinging hand strikes, an open palm damps, and one gesture opens the
+// settings. Everything that changes the gong lives behind it, so a hand
+// that is banging cannot also change the gong by accident.
+//   play    any moving hand strikes; Open Palm (held) -> damp;
+//           Victory (held) -> adjust
+//   adjust  Thumb Up/Down (held) -> next/previous gong, Victory (held) -> next mallet,
+//           two pointed fingers pinching -> resize, two Open Palms (held) -> gong bath,
+//           Open Palm (held) -> done, back to play. A swing still strikes, to try it.
+//   bath    the gong plays itself; a hand still strikes; Thumb Up (held) -> next gong,
+//           Open Palm (held) -> stop, back to play
+// Not a wave anywhere: swinging at the gong twice is a wave.
 export const BATH_MIN_MS = 1800;
 export const BATH_MAX_MS = 4200;
-const KEYS = { ArrowRight: "Thumb_Up", ArrowLeft: "Thumb_Down", s: "Victory", m: "Open_Palm", b: TWO_PALMS, Escape: "Open_Palm" };
 
-export const ACCENT = { bronze: "#b4732f", indigo: "#4b5bb5" };
+export const ACCENT = { bronze: "#b4732f", teal: "#2f8f83", indigo: "#4b5bb5" };
 const UI = {
   play: {
     title: "Play", color: ACCENT.bronze,
     hint: "Swing a hand at the gong",
     controls: [
       ["Swing a hand at it", "Strike. Faster is louder, the rim is brighter", "strike"],
+      ["Hold an open palm", "Damp it", "Open_Palm"],
+      ["Hold two fingers up", "Adjust the gong and mallet", "Victory"],
+    ],
+    gestures: ["Victory", "Open_Palm"],
+    live: [],
+  },
+  adjust: {
+    title: "Adjust", color: ACCENT.teal,
+    hint: "Set up the gong",
+    controls: [
       ["Hold a thumb up", "Next gong", "Thumb_Up"],
       ["Hold a thumb down", "Previous gong", "Thumb_Down"],
       ["Hold two fingers up", "Next mallet", "Victory"],
       ["Pinch two pointed fingers", "Resize the gong", "resize"],
-      ["Hold an open palm", "Damp it", "Open_Palm"],
+      ["Swing a hand at it", "Try it", "strike"],
       ["Hold two open palms", "Gong bath", TWO_PALMS],
+      ["Hold an open palm", "Done, back to playing", "Open_Palm"],
     ],
     gestures: [TWO_PALMS, "Thumb_Up", "Thumb_Down", "Victory", "Open_Palm"],
     live: ["Pinch"],
@@ -42,7 +55,7 @@ const UI = {
       ["Hold an open palm", "Stop the bath", "Open_Palm"],
     ],
     gestures: ["Thumb_Up", "Open_Palm"],
-    live: ["Pinch"],
+    live: [],
   },
 };
 
@@ -105,15 +118,21 @@ export default function Controls({ gong, onHands, live = null, liveLabel = null,
   function handleGesture(g) {
     const m = modeRef.current;
     fire(g);
-    if (g === "Thumb_Up") return gong.stepGong(1);
     if (m === "play") {
+      if (g === "Open_Palm") return gong.damp();
+      if (g === "Victory") return setMode("adjust");
+      return;
+    }
+    if (m === "adjust") {
+      if (g === "Thumb_Up") return gong.stepGong(1);
       if (g === "Thumb_Down") return gong.stepGong(-1);
       if (g === "Victory") return gong.stepMallet(1);
-      if (g === "Open_Palm") return gong.damp();
       if (g === TWO_PALMS) return setMode("bath");
+      if (g === "Open_Palm") return setMode("play");
       return;
     }
     if (m === "bath") {
+      if (g === "Thumb_Up") return gong.stepGong(1);
       if (g === "Open_Palm") {
         gong.damp();
         return setMode("play");
@@ -126,12 +145,20 @@ export default function Controls({ gong, onHands, live = null, liveLabel = null,
     window.__kiosk = { mode, gesture: handleGesture, setMode };
   });
 
-  // Keyboard fallback for a machine without a camera. Space strikes near
-  // the centre, + and - resize; the rest stand in for one gesture each.
+  // Keyboard fallback for a machine without a camera. The keys act
+  // directly, in any mode: Space strikes near the centre, the arrows change
+  // the gong, s the mallet, + and - resize, m damps, a opens and closes
+  // Adjust, b starts the bath, Esc goes back to playing.
   useEffect(() => {
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       gong.wake();
+      const m = modeRef.current;
+      const act = (key, fn) => {
+        e.preventDefault();
+        fire(key);
+        fn();
+      };
       if (e.key === " ") {
         e.preventDefault();
         const size = gong.sizeRef.current;
@@ -141,12 +168,15 @@ export default function Controls({ gong, onHands, live = null, liveLabel = null,
         gong.strike({ x: cx + Math.cos(a) * r * R, y: cy + Math.sin(a) * r * R, strength: 0.5 + Math.random() * 0.4, source: "key" });
         return;
       }
-      if (e.key === "+" || e.key === "=") return gong.scaleSize(1.12);
-      if (e.key === "-" || e.key === "_") return gong.scaleSize(1 / 1.12);
-      const g = KEYS[e.key];
-      if (!g) return;
-      e.preventDefault();
-      handleGesture(g);
+      if (e.key === "ArrowRight") return act("Thumb_Up", () => gong.stepGong(1));
+      if (e.key === "ArrowLeft") return act("Thumb_Down", () => gong.stepGong(-1));
+      if (e.key === "s") return act("Victory", () => gong.stepMallet(1));
+      if (e.key === "+" || e.key === "=") return act("resize", () => gong.scaleSize(1.12));
+      if (e.key === "-" || e.key === "_") return act("resize", () => gong.scaleSize(1 / 1.12));
+      if (e.key === "m") return act("Open_Palm", () => gong.damp());
+      if (e.key === "a") return act(m === "play" ? "Victory" : "Open_Palm", () => setMode(m === "adjust" ? "play" : "adjust"));
+      if (e.key === "b") return act(TWO_PALMS, () => setMode("bath"));
+      if (e.key === "Escape") return act("Open_Palm", () => { if (m === "bath") gong.damp(); setMode("play"); });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -155,19 +185,25 @@ export default function Controls({ gong, onHands, live = null, liveLabel = null,
   const ui = UI[mode];
   uiRef.current = ui;
   const hint = liveLabel || (mode === "bath" ? `${gong.gong.name} plays itself` : ui.hint);
-  const note = mode === "bath" ? `Slow, soft strikes with the ${gong.mallet.name.toLowerCase()}. Every eighth one moves to the next gong and mallet.` : `${gong.gong.name}, ${gong.cm} cm, with the ${gong.mallet.name.toLowerCase()}.`;
+  const note = mode === "bath"
+    ? `Slow, soft strikes with the ${gong.mallet.name.toLowerCase()}. Every eighth one moves to the next gong and mallet.`
+    : mode === "adjust"
+      ? `${gong.gong.name}, ${gong.cm} cm, with the ${gong.mallet.name.toLowerCase()}. ${gong.gong.tagline}.`
+      : `${gong.gong.name}, ${gong.cm} cm, with the ${gong.mallet.name.toLowerCase()}.`;
 
   return (
     <aside className="panel" style={{ "--accent": ui.color }}>
       <header className="kiosk-head">
         <h1 className="mode"><span className="dot" />{ui.title}</h1>
-        <ol className="stops" aria-label="Gongs">
-          {GONGS.map((g, i) => (
-            <li key={g.key} className={i === gong.gongIndex ? "current" : ""} title={g.name}>
-              <span className="pip" style={{ "--body": g.color }} />
-            </li>
-          ))}
-        </ol>
+        {mode !== "play" && (
+          <ol className="stops" aria-label="Gongs">
+            {GONGS.map((g, i) => (
+              <li key={g.key} className={i === gong.gongIndex ? "current" : ""} title={g.name}>
+                <span className="pip" style={{ "--body": g.color }} />
+              </li>
+            ))}
+          </ol>
+        )}
       </header>
 
       <Kiosk
@@ -186,7 +222,7 @@ export default function Controls({ gong, onHands, live = null, liveLabel = null,
         event={event}
       />
 
-      <p className="foot">No camera? Click or tap the gong to strike it, scroll to resize. Space strikes, the arrow keys change the gong, s the mallet, m damps, b starts the bath. {MALLETS.length} mallets, {GONGS.length} gongs.</p>
+      <p className="foot">No camera? Click or tap the gong to strike it, drag across it to swing, scroll to resize. Space strikes, a opens Adjust, the arrow keys change the gong, s the mallet, m damps, b starts the bath, Esc goes back. {MALLETS.length} mallets, {GONGS.length} gongs.</p>
     </aside>
   );
 }
