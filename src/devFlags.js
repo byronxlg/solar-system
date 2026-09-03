@@ -76,11 +76,17 @@ export function fakeBody({ x, y, size = 0.3, left = null, right = null }) {
   return lm;
 }
 
-// What the pose task returns: nobody, or window.__fakeBody.
+// What the pose task returns: nobody, or window.__fakeBody. The world
+// landmarks (metres about the hips) come from the frame with the shoulder
+// width as 0.4 m and a 4:3 frame, which is what the fake camera gives.
 export const STUB_POSE_LANDMARKER = {
   detectForVideo() {
     const body = window.__fakeBody;
-    return { landmarks: body ? [fakeBody(body)] : [], worldLandmarks: [] };
+    if (!body) return { landmarks: [], worldLandmarks: [] };
+    const lm = fakeBody(body);
+    const k = 0.4 / (body.size || 0.3);
+    const world = lm.map((p) => ({ x: (p.x - body.x) * k, y: (p.y - body.y) * 0.75 * k, z: p.z * k, visibility: p.visibility }));
+    return { landmarks: [lm], worldLandmarks: [world] };
   },
   close() {},
 };

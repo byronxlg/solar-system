@@ -15,6 +15,7 @@ export default function App() {
   const [mode, setMode] = useState("play");
   const modeRef = useRef("play");
   const liveRef = useRef({ hands: null, pose: null }); // the latest from each source; a resize wins over a swing
+  const presenceRef = useRef(0); // when a body or a hand was last in view; Play ends when that goes stale
 
   function stageSize() {
     const el = document.querySelector(".stage-wrap");
@@ -26,6 +27,7 @@ export default function App() {
   }
 
   function feedHands(hands, now) {
+    if (hands.length) presenceRef.current = now;
     liveRef.current.hands = gestures.handleHands(
       hands.map((h) => {
         const x = h.nx ?? h.x;
@@ -39,10 +41,12 @@ export default function App() {
     showStage();
   }
 
-  // body: { left, right, unit, x, y } in raw frame coords from the kiosk, or null
+  // body: { left, right, leftElbow, rightElbow, unit, x, y } from the kiosk
+  // (joints in raw frame coords with a world position in metres), or null
   function feedPose(body, now) {
-    const wrist = (w) => (w ? { x: MIRROR ? 1 - w.x : w.x, y: w.y, z: w.z || 0, vis: w.vis ?? 1 } : null);
-    liveRef.current.pose = gestures.handlePose(body ? { left: wrist(body.left), right: wrist(body.right), unit: body.unit } : null, stageSize(), now, modeRef.current);
+    if (body) presenceRef.current = now;
+    const joint = (j) => (j ? { x: MIRROR ? 1 - j.x : j.x, y: j.y, z: j.z || 0, vis: j.vis ?? 1, world: j.world } : null);
+    liveRef.current.pose = gestures.handlePose(body ? { left: joint(body.left), right: joint(body.right), leftElbow: joint(body.leftElbow), rightElbow: joint(body.rightElbow), unit: body.unit } : null, stageSize(), now, modeRef.current);
     showStage();
   }
 
@@ -75,7 +79,8 @@ export default function App() {
       state: () => ({ ...gong.selRef.current, gong: GONGS[gong.selRef.current.gong].key, mallet: MALLETS[gong.selRef.current.mallet].key, cm: gong.cm, hits: gong.physRef.current.hits, lastHit: gong.physRef.current.lastHit, ringing: audio.ringing(), audio: audio.unlocked(), mode: modeRef.current }),
       phys: () => ({ ...gong.physRef.current }),
       mallets: () => Object.fromEntries(Object.entries(gong.malletsRef.current).map(([k, m]) => [k, { ...m, trail: undefined }])),
-      swings: () => Object.fromEntries(Object.entries(gestures.armsRef.current).map(([k, f]) => [k, { x: f.x, y: f.y, z: f.z, speed: f.speed, armed: f.armed }])),
+      swings: () => Object.fromEntries(Object.entries(gestures.armsRef.current).map(([k, f]) => [k, { speed: f.speed, peak: f.peak, travel: f.travel, armed: f.armed }])),
+      presence: () => presenceRef.current,
       layout: () => {
         const el = document.querySelector(".stage-wrap");
         return { ...gong.sizeRef.current, ...(el ? { width: el.clientWidth, height: el.clientHeight } : {}) };
@@ -130,7 +135,7 @@ export default function App() {
         </article>
         )}
       </div>
-      <Controls gong={gong} onHands={feedHands} onPose={feedPose} live={stage.live} liveLabel={stage.label} overlayRef={gestures.overlayRef} onMode={handleMode} />
+      <Controls gong={gong} onHands={feedHands} onPose={feedPose} presenceRef={presenceRef} live={stage.live} liveLabel={stage.label} overlayRef={gestures.overlayRef} onMode={handleMode} />
     </div>
   );
 }

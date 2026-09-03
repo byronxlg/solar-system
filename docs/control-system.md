@@ -37,22 +37,28 @@ zoom, time) act every frame while the hand is in that pose.
 
 # Gong
 
-Playing is the whole of the main screen. Swings come from the body model
-(the wrists), not the hands: each arm has a mallet on its side of the gong,
-and a swing strikes the centre. Where the hand is does not matter. Held
-gestures come from the hand model, fill a pill and fire once, and only count
-while the hand is still, so an arm mid-swing never fires one. Everything
-that changes the gong is in Adjust, behind one gesture, and nothing strikes
-there. A closed fist is the way back, as in the sky.
+Playing is the whole of the main screen and it listens for one thing: a
+stroke of the arm, from the body model. Each arm has a mallet on its side
+of the gong, and a stroke strikes the centre. Where the hand is does not
+matter, and the hands do nothing at all in Play. A stroke is the movement
+that would hit a real gong and nothing less: the whole arm drives the wrist
+through a straight run of at least 30 cm inside 0.6 s, reaching 2.2 m/s,
+elbow coming with it (the thresholds are at the top of
+`src/gong/useStrikeGestures.js`). A wave, a wrist flick, a slow reach or a
+wander does not count. The way out of Play is not a gesture: the person
+who was playing steps out of view and stays out for 3 s. Everything that
+changes the gong is in Adjust, where held gestures (from the hand model)
+fill a pill and fire once, and only count while the hand is still. Nothing
+strikes in Adjust. A closed fist is the way back, as in the sky.
 
 ## Play
 
 | Control | Action | Built |
 |---|---|---|
-| Swing an arm (across, up, or at the camera) | Strike the centre where the swing peaks; faster is louder | yes |
+| Swing an arm at it (across, up, or at the camera), a real stroke | Strike the centre as the stroke arrives; faster is louder | yes |
 | Both arms swung | Two mallets, one per side; a hit from each | yes |
-| Open palm, hold still | Damp the gong (everything ringing fades out) | yes |
-| Two fingers up (Victory), hold | Adjust the gong and mallet | yes |
+| Any hand gesture | Nothing | yes |
+| Step out of view for 3 s (after being in it) | Adjust | yes |
 
 ## Adjust
 
