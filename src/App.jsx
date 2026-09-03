@@ -5,6 +5,7 @@ import { useCamera, rateLabel } from "./useCamera.js";
 import { useViewGestures } from "./useViewGestures.js";
 import { MIRROR } from "./Kiosk.jsx";
 import { BODIES, YEAR_S, bodyPosition, pxPerUnit } from "./solar.js";
+import AppSwitcher from "./AppSwitcher.jsx";
 
 export default function App() {
   const camera = useCamera();
@@ -90,6 +91,7 @@ export default function App() {
           <span className="pill">{title}</span>
           <span className={`pill faint${timeLabel ? " time" : ""}`}>{timeLabel || `1 Earth year = ${YEAR_S} s`}</span>
         </div>
+        <AppSwitcher current="solar" />
         {focused && mode !== "navigate" && (
           <article className="card" key={focused.key}>
             <header>

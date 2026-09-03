@@ -44,7 +44,7 @@ const DEFAULT_MIN_SCORE = 0.6;
 export const minScore = (name) => MIN_SCORES[name] ?? DEFAULT_MIN_SCORE;
 const COOLDOWN_MS = 1500;
 const FIRED_MS = 1100;
-const LIVE_LABEL = { pan: "Panning", zoom: "Zooming", fly: "Flying", point: "Aiming", time: "Time" };
+const LIVE_LABEL = { pan: "Panning", zoom: "Zooming", fly: "Flying", point: "Aiming", time: "Time", strike: "Mallet in hand", resize: "Resizing" };
 
 export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, controls = [], gestures = [], liveGestures = [], onGesture, onHands, live = null, liveLabel = null, overlayRef: skyOverlayRef = null, viewRef = null, event = null }) {
   const videoRef = useRef(null);
@@ -115,11 +115,14 @@ export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, cont
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (MIRROR) ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
-      const navigating = p.liveGestures.includes("Grab");
-      const hands = drawHands(ctx, handResult, [...p.gestures, ...p.liveGestures], navigating, waveRef.current, now);
+      // "Grab" lights a grabbing hand and draws its drag handle; "Pinch" only the two-finger band
+      const grabbing = p.liveGestures.includes("Grab");
+      const navigating = grabbing || p.liveGestures.includes("Pinch");
+      const hands = drawHands(ctx, handResult, [...p.gestures, ...p.liveGestures], navigating, waveRef.current, now, grabbing);
       p.onHands?.(hands);
       const holding = updateHolds(hands, now, p);
-      if (navigating) drawNavigate(ctx, hands, now, p.viewRef?.current?.scale || 1);
+      const v = p.viewRef?.current || {};
+      if (navigating) drawNavigate(ctx, hands, now, v.scale || 1, grabbing, v.badge);
       const sky = p.skyOverlayRef?.current || {};
       if (p.live === "fly" && sky.fly) drawFly(ctx, sky.fly, now);
       if (p.live === "time" && sky.dial) drawDial(ctx, sky.dial);
@@ -210,14 +213,14 @@ export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, cont
 // Which hands the navigate overlays stand in for: the two pointing fingertips
 // of a pinch, or the single grabbing hand. Their skeletons and labels are not
 // drawn; the band or drag handle is the hand's representation.
-function overlayHands(hands) {
+function overlayHands(hands, grab = true) {
   const fingers = hands.filter((h) => h.gesture === "Pointing_Up" && h.score >= minScore("Pointing_Up"));
   if (fingers.length >= 2) return new Set(fingers.slice(0, 2));
-  if (hands.length === 1 && hands[0].gesture === "Grab") return new Set(hands);
+  if (grab && hands.length === 1 && hands[0].gesture === "Grab") return new Set(hands);
   return new Set();
 }
 
-function drawHands(ctx, result, active, navigating = false, wave = null, now = 0) {
+function drawHands(ctx, result, active, navigating = false, wave = null, now = 0, grab = true) {
   const { width, height } = ctx.canvas;
   const drawer = new DrawingUtils(ctx);
   const waving = wave && active.includes(WAVE);
@@ -237,12 +240,12 @@ function drawHands(ctx, result, active, navigating = false, wave = null, now = 0
     // size as a fraction of the frame width, a stand-in for how close it is
     return { gesture: g?.categoryName || "None", score: g?.score || 0, wave: progress, x: landmarks[9].x * width, y: landmarks[9].y * height, nx: landmarks[9].x, ny: landmarks[9].y, ntx: landmarks[8].x, nty: landmarks[8].y, unit: handUnit(landmarks, width, height) / width };
   });
-  const hidden = navigating ? overlayHands(info) : new Set();
+  const hidden = navigating ? overlayHands(info, grab) : new Set();
   result.landmarks.forEach((landmarks, i) => {
     if (hidden.has(info[i])) return;
     // a wave in progress labels the hand instead of the pose it is in
     const g = info[i].wave > 0 ? { categoryName: WAVE, score: info[i].wave } : info[i].gesture !== "None" ? { categoryName: info[i].gesture, score: info[i].score } : null;
-    const activeNames = active.flatMap((n) => (n === TWO_PALMS ? ["Open_Palm"] : [n]));
+    const activeNames = active.flatMap((n) => (n === TWO_PALMS ? ["Open_Palm"] : n === "Pinch" ? ["Pointing_Up"] : [n]));
     const isActive = g && (g.categoryName === WAVE || (activeNames.includes(g.categoryName) && g.score >= minScore(g.categoryName)));
     const color = isActive ? ACTIVE : IDLE;
     drawer.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, { color, lineWidth: Math.max(2, width / 400) });
@@ -319,10 +322,11 @@ export function matchHold(name, hands) {
 // Navigate overlays, drawn in the mirrored frame. Two pointing fingertips
 // zooming get an elastic band with the zoom factor at its midpoint (marching
 // dashes so it reads as live); a single grabbing hand gets a drag handle:
-// a dot on the pinch with four chevrons breathing around it.
-function drawNavigate(ctx, hands, now, scale) {
+// a dot on the pinch with four chevrons breathing around it. The badge is
+// the zoom factor unless the caller gives its own text.
+function drawNavigate(ctx, hands, now, scale, grab = true, badge = null) {
   const { width, height } = ctx.canvas;
-  const overlay = [...overlayHands(hands)];
+  const overlay = [...overlayHands(hands, grab)];
   if (overlay.length >= 2) {
     const [a, b] = overlay;
     const ax = a.ntx * width, ay = a.nty * height;
@@ -349,7 +353,7 @@ function drawNavigate(ctx, hands, now, scale) {
       ctx.stroke();
     }
     // zoom factor badge at the midpoint, upright
-    const text = `×${scale.toFixed(1)}`;
+    const text = badge || `×${scale.toFixed(1)}`;
     const font = Math.max(14, width / 36);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.font = `700 ${font}px ${FONT}`;
