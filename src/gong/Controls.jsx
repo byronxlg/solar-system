@@ -3,13 +3,15 @@ import Kiosk, { TWO_PALMS } from "../Kiosk.jsx";
 import { GONGS, MALLETS } from "./gongs.js";
 import { layout } from "./useGong.js";
 
-// Gestures only, no buttons. Playing is the whole of the main screen: a
-// swinging arm strikes, an open palm damps, and one gesture opens the
-// settings. Everything that changes the gong lives behind it, and nothing
-// strikes there, so setting up and banging never mix. A closed fist is the
-// way back, as it is in the sky.
-//   play    a swinging arm strikes the centre; Open Palm (held) -> damp;
-//           Victory (held) -> adjust
+// Gestures only, no buttons. Playing is the whole of the main screen and
+// the only thing it listens for is a stroke of the arm: the hands are
+// ignored there, so nothing a banging person does with their fingers can
+// change anything. The way out of Play is not a gesture at all: the person
+// who was playing steps out of view and stays out for AWAY_MS, and the
+// kiosk drops into Adjust. Everything that changes the gong lives there,
+// nothing strikes there, and a closed fist is the way back, as in the sky.
+//   play    a stroke of the arm strikes the centre. No hand controls.
+//           Nobody in view for AWAY_MS (after somebody was) -> adjust
 //   adjust  Thumb Up/Down (held) -> next/previous gong, Victory (held) -> next mallet,
 //           two pointed fingers pinching -> resize, two Open Palms (held) -> gong bath,
 //           Closed Fist (held) -> back to play. No strikes.
@@ -19,6 +21,8 @@ import { layout } from "./useGong.js";
 // A hold only counts while the hand is still (STILL_HOLD), so an arm mid-swing
 // with an open hand or a fist never damps or leaves the mode by accident.
 const STILL_HOLD = 0.5; // frame widths per second
+export const AWAY_MS = 3000; // nobody in view this long ends Play
+const AWAY = "away"; // the control key for it, so the legend row and the fired pill work
 export const BATH_MIN_MS = 1800;
 export const BATH_MAX_MS = 4200;
 
@@ -26,13 +30,12 @@ export const ACCENT = { bronze: "#b4732f", teal: "#2f8f83", indigo: "#4b5bb5" };
 const UI = {
   play: {
     title: "Play", color: ACCENT.bronze,
-    hint: "Swing an arm to strike the gong",
+    hint: "Strike the gong with a full swing of the arm",
     controls: [
-      ["Swing an arm", "Strike the centre. Faster is louder", "strike"],
-      ["Hold an open palm", "Damp it", "Open_Palm"],
-      ["Hold two fingers up", "Adjust the gong and mallet", "Victory"],
+      ["Swing an arm at it", "Strike the centre. A real stroke, elbow and all; faster is louder", "strike"],
+      ["Step out of view", "Set up the gong, after a few seconds with nobody there", AWAY],
     ],
-    gestures: ["Victory", "Open_Palm"],
+    gestures: [],
     live: [],
   },
   adjust: {
@@ -63,10 +66,11 @@ const UI = {
   },
 };
 
-// gong: from useGong. onHands / onPose: per-frame hands and body. live /
+// gong: from useGong. onHands / onPose: per-frame hands and body.
+// presenceRef: when a body or hand was last seen (performance.now()). live /
 // liveLabel: what the stage is doing right now. overlayRef: { scale, badge,
 // swing } for the resize band and the wrist rings.
-export default function Controls({ gong, onHands, onPose, live = null, liveLabel = null, overlayRef = null, onMode }) {
+export default function Controls({ gong, onHands, onPose, presenceRef = null, live = null, liveLabel = null, overlayRef = null, onMode }) {
   const [mode, setMode] = useState("play");
   const modeRef = useRef(mode);
   modeRef.current = mode;
@@ -124,9 +128,8 @@ export default function Controls({ gong, onHands, onPose, live = null, liveLabel
     const m = modeRef.current;
     fire(g);
     if (m === "play") {
-      if (g === "Open_Palm") return gong.damp();
-      if (g === "Victory") return setMode("adjust");
-      return;
+      if (g === AWAY) return setMode("adjust");
+      return; // no hand controls while playing
     }
     if (m === "adjust") {
       if (g === "Thumb_Up") return gong.stepGong(1);
@@ -146,9 +149,23 @@ export default function Controls({ gong, onHands, onPose, live = null, liveLabel
     }
   }
 
+  // The way out of Play: somebody was in view (presenceRef.current is when a
+  // body or a hand was last seen) and nobody has been for AWAY_MS. Only a
+  // person who was there and left counts; an empty room at load stays in
+  // Play until someone comes.
+  useEffect(() => {
+    if (mode !== "play" || !presenceRef) return;
+    const since = presenceRef.current; // presence before this Play does not count
+    const id = setInterval(() => {
+      const seen = presenceRef.current;
+      if (seen > since && performance.now() - seen > AWAY_MS) handleGesture(AWAY);
+    }, 250);
+    return () => clearInterval(id);
+  }, [mode, presenceRef]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // dev hook: drive the flow from the console or tests, e.g. __kiosk.gesture("Thumb_Up")
   useEffect(() => {
-    window.__kiosk = { mode, gesture: handleGesture, setMode };
+    window.__kiosk = { mode, gesture: handleGesture, setMode, awayMs: AWAY_MS };
   });
 
   // Keyboard fallback for a machine without a camera. The keys act
@@ -180,7 +197,7 @@ export default function Controls({ gong, onHands, onPose, live = null, liveLabel
       if (e.key === "+" || e.key === "=") return act("resize", () => gong.scaleSize(1.12));
       if (e.key === "-" || e.key === "_") return act("resize", () => gong.scaleSize(1 / 1.12));
       if (e.key === "m") return act("Open_Palm", () => gong.damp());
-      if (e.key === "a") return act(m === "play" ? "Victory" : "Closed_Fist", () => setMode(m === "adjust" ? "play" : "adjust"));
+      if (e.key === "a") return act(m === "play" ? AWAY : "Closed_Fist", () => setMode(m === "adjust" ? "play" : "adjust"));
       if (e.key === "b") return act(TWO_PALMS, () => setMode("bath"));
       if (e.key === "Escape") return act("Closed_Fist", () => { if (m === "bath") gong.damp(); setMode("play"); });
     };
@@ -195,7 +212,7 @@ export default function Controls({ gong, onHands, onPose, live = null, liveLabel
     ? `Slow, soft strikes with the ${gong.mallet.name.toLowerCase()}. Every eighth one moves to the next gong and mallet.`
     : mode === "adjust"
       ? `${gong.gong.name}, ${gong.cm} cm, with the ${gong.mallet.name.toLowerCase()}. ${gong.gong.tagline}.`
-      : `${gong.gong.name}, ${gong.cm} cm, with the ${gong.mallet.name.toLowerCase()}.`;
+      : `${gong.gong.name}, ${gong.cm} cm, with the ${gong.mallet.name.toLowerCase()}. Hands do nothing here; step out of view for ${AWAY_MS / 1000} s to set it up.`;
 
   return (
     <aside className="panel" style={{ "--accent": ui.color }}>

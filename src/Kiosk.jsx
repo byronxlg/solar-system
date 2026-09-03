@@ -306,8 +306,9 @@ function drawHands(ctx, result, active, navigating = false, wave = null, now = 0
 // The body: shoulders, arms and hips as a faint skeleton under the hands,
 // the wrists as dots. A wrist mid-swing gets a ring that grows with its
 // speed (swing[Left|Right].k, 0..1) and flashes on a hit (swing.hitAt).
-// Returns the wrists and shoulder width for the app, normalised to the raw
-// frame, or null when nobody is in view.
+// Returns the wrists and elbows (normalised to the raw frame, plus a world
+// position in metres) and the shoulder width for the app, or null when
+// nobody is in view.
 const BODY_LINES = [[POSE.lShoulder, POSE.rShoulder], [POSE.lShoulder, POSE.lElbow], [POSE.lElbow, POSE.lWrist], [POSE.rShoulder, POSE.rElbow], [POSE.rElbow, POSE.rWrist], [POSE.lShoulder, POSE.lHip], [POSE.rShoulder, POSE.rHip], [POSE.lHip, POSE.rHip]];
 const BODY_VIS = 0.5;
 const BODY_LINE = "rgba(255,255,255,0.45)";
@@ -354,8 +355,13 @@ function drawBody(ctx, result, swing, now) {
   ctx.restore();
   const sh = [POSE.lShoulder, POSE.rShoulder];
   const unit = vis(sh[0]) >= BODY_VIS && vis(sh[1]) >= BODY_VIS ? Math.hypot(lm[sh[0]].x - lm[sh[1]].x, ((lm[sh[0]].y - lm[sh[1]].y) * height) / width) : 0;
-  const wrist = (i) => ({ x: lm[i].x, y: lm[i].y, z: lm[i].z || 0, vis: vis(i) });
-  return { left: wrist(POSE.lWrist), right: wrist(POSE.rWrist), unit, x: (lm[sh[0]].x + lm[sh[1]].x) / 2, y: (lm[sh[0]].y + lm[sh[1]].y) / 2 };
+  // world: the model's 3D estimate in metres about the hips, for real arm
+  // speeds; without it, a stand-in from the frame with the shoulders as 0.4 m
+  const wl = result.worldLandmarks?.[0];
+  const scale = 0.4 / Math.max(unit, 0.08);
+  const world = (i) => (wl ? { x: wl[i].x, y: wl[i].y, z: wl[i].z || 0 } : { x: lm[i].x * scale, y: ((lm[i].y * height) / width) * scale, z: (lm[i].z || 0) * scale });
+  const joint = (i) => ({ x: lm[i].x, y: lm[i].y, z: lm[i].z || 0, vis: vis(i), world: world(i) });
+  return { left: joint(POSE.lWrist), right: joint(POSE.rWrist), leftElbow: joint(POSE.lElbow), rightElbow: joint(POSE.rElbow), unit, x: (lm[sh[0]].x + lm[sh[1]].x) / 2, y: (lm[sh[0]].y + lm[sh[1]].y) / 2 };
 }
 
 // Grab: index fingertip touching the thumb tip. Other fingers do not matter.

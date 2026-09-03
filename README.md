@@ -90,13 +90,18 @@ palms, `t` for a wave and `Esc` for a fist (`KEYS` in `src/Controls.jsx`).
 `/gong/` (`gong/index.html`, `src/gong/`). A gong hangs in a frame on the
 left; the kiosk on the right is the same one the sky uses, with the body
 model (MediaPipe Pose Landmarker, lite) running beside the hand model. Each
-arm holds a mallet that rests on its side of the gong: swing the arm and the
-mallet strikes the centre where the swing peaks (wrist speed in shoulder
-widths per second, so distance from the camera does not matter). Where the
-hand is does not matter either; there is nothing to aim. Faster is louder,
-and a punch at the camera counts as a swing. Holds come from the hand model
-and only count while the hand is still, so an arm mid-swing with an open
-hand or a fist never damps or leaves the mode. A bigger gong rings lower
+arm holds a mallet that rests on its side of the gong: stroke the arm and
+the mallet strikes the centre as the stroke arrives. A stroke is the
+movement that would hit a real gong and nothing less: the whole arm drives
+the wrist through a straight run of at least 30 cm inside 0.6 s, reaching
+2.2 m/s, elbow coming with it, measured in metres from the model's world
+landmarks so distance from the camera does not matter and a punch at the
+camera counts as much as a sweep. A wave, a wrist flick, a slow reach or a
+wander does nothing. Where the hand is does not matter either; there is
+nothing to aim, and the hands do nothing at all while playing. Faster is
+louder. The way out of Play is not a gesture: whoever was playing steps out
+of view for 3 s and the kiosk drops into Adjust, where the hand controls
+live (and only count while the hand is still). A bigger gong rings lower
 and longer.
 
 - `src/gong/gongs.js`: six gongs (chau, symphonic, wind, Tibetan, iron,
@@ -123,19 +128,22 @@ and longer.
   for the swoosh. A body mallet is not steered: it rests beside the gong,
   cocks back as the arm winds up and flies to the centre on a hit.
   `layout()` says where the gong is on the stage.
-- `src/gong/useStrikeGestures.js`: wrists to strikes (peak of the wrist's
-  speed, one mallet per arm so two arms play two-handed) and two pointed
-  fingers pinching to resize the gong. The thresholds (`STRIKE_SPEED`,
-  `FULL_SPEED`, in shoulder widths per second) are at the top.
+- `src/gong/useStrikeGestures.js`: arms to strikes (the stroke detector:
+  travel, straightness, peak speed, elbow travel and duration over the run
+  since the arm was last at rest; one mallet per arm so two arms play
+  two-handed) and two pointed fingers pinching to resize the gong. The
+  thresholds (`STRIKE_SPEED`, `FULL_SPEED` in m/s, `MIN_TRAVEL`,
+  `ELBOW_TRAVEL` in m, `STRAIGHT`, `MAX_STROKE_MS`) are at the top.
 - `src/usePoseLandmarker.js`: the body model, loaded only by kiosks that
   ask for it (`pose` prop); the sky does not pay for it. `src/Kiosk.jsx`
-  draws the arms and shoulders under the hands, rings a swinging wrist, and
-  reports the wrists and shoulder width upward each frame.
+  draws the arms and shoulders under the hands, rings a wrist as its stroke
+  builds, and reports the wrists and elbows (frame and world coordinates)
+  and shoulder width upward each frame.
 - `src/gong/GongStage.jsx`: the canvas. Room and halo, frame, ropes, the gong
   with its rim, hammer marks, lacquer, boss, ripples, rocking light and
   sheen, a rim of light that rings with the sound, sparks, the mallets.
-- Modes: PLAY (bronze) is the whole of the main screen: swing an arm to
-  strike, hold an open palm to damp, hold two fingers up for ADJUST (teal),
+- Modes: PLAY (bronze) is the whole of the main screen: stroke an arm to
+  strike, and nothing else; step out of view for 3 s for ADJUST (teal),
   where everything that changes the gong lives and nothing strikes: a thumb
   up or down for the next or previous gong, two fingers up for the next
   mallet, two pointed fingers pinching to resize the gong inside its fixed
