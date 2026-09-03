@@ -89,9 +89,10 @@ palms, `t` for a wave and `Esc` for a fist (`KEYS` in `src/Controls.jsx`).
 
 `/gong/` (`gong/index.html`, `src/gong/`). A gong hangs in a frame on the
 left; the kiosk on the right is the same one the sky uses, with the body
-model (MediaPipe Pose Landmarker, lite) running beside the hand model. Each
-arm holds a mallet that rests on its side of the gong: stroke the arm and
-the mallet strikes the centre as the stroke arrives. A stroke is the
+model (MediaPipe Pose Landmarker, lite) running beside the hand model. One
+mallet rests beside the gong: stroke either arm and it swings into the
+centre along an arc, trailing its path, as the stroke arrives; the kiosk
+draws the wrist's own path as the swing builds. A stroke is the
 movement that would hit a real gong and nothing less: the whole arm drives
 the wrist through a straight run of at least 30 cm inside 0.6 s, reaching
 2.2 m/s, elbow coming with it, measured in metres from the model's world
@@ -104,12 +105,27 @@ of view for 3 s and the kiosk drops into Adjust, where the hand controls
 live (and only count while the hand is still). A bigger gong rings lower
 and longer.
 
-- `src/gong/gongs.js`: six gongs (chau, symphonic, wind, Tibetan, iron,
-  moon) and five mallets (wool, felt, rubber, wood, steel) as pure data:
-  colours, hammer-mark density, fundamental, partial ratios, decay and
-  shimmer for a gong; hardness, contact noise and head size for a mallet.
-  `strikeSpectrum` turns a hit (where, how hard, which mallet) into
-  per-partial gains.
+- `src/gong/gongs.js`: thirteen gongs and five mallets (wool, felt, rubber,
+  wood, steel) as pure data. Six alloys (chau, symphonic, wind, Tibetan,
+  iron, moon) and seven that are not: Sun (corona and flares, a furnace of
+  inharmonic partials, 22 s decay), Earth (continents, cloud streaks
+  drifting, polar caps; nearly harmonic), Mars (craters and a cap; dry and
+  short), Jupiter (bands and the red spot; partials packed at the bottom,
+  the deepest note), Saturn (a tilted ring in two halves, front and back;
+  partials in thirds and fifths, a chord), Neptune (bands and a dark storm;
+  stretched partials, long shimmer) and a black hole (a flickering
+  accretion disc round a black face, a photon ring outside the rim; a drone
+  at 28 Hz). Colours, hammer-mark density, fundamental, partial ratios,
+  decay and shimmer for a gong; hardness, contact noise and head size for
+  a mallet. `strikeSpectrum` turns a hit (where, how hard, which mallet)
+  into per-partial gains.
+- `src/gong/scenes.js`: five backdrops, all procedural and seeded: a temple
+  hall, a mountain top at dawn (ridges, a sea of cloud drifting, snow
+  underfoot), deep space (stars twinkling, nebulae, a far planet with a
+  moon going round it), a beach at dusk (the sun half down, the swell
+  catching it, foam at the edge) and a night forest (trunks in layers,
+  mist between them, fireflies). The stage paints the halo, the flash and
+  the floor over whichever is chosen.
 - `src/gong/audio.js`: Web Audio synthesis, no samples. Each strike is a
   bank of detuned sine pairs at the gong's partial ratios with their own
   decays, a filtered noise burst for the mallet's contact, a delayed swell of
@@ -124,38 +140,44 @@ and longer.
   swing, push-back, the plate rocking about the axis across the hit, a jolt
   of the whole stage on a hard hit, flash, ripples, glints, sparks) and
   `strike()`, which every source goes through: arms, mouse, touch, keys and
-  the bath. One mallet per holder (each arm, the mouse), with a short trail
-  for the swoosh. A body mallet is not steered: it rests beside the gong,
-  cocks back as the arm winds up and flies to the centre on a hit.
-  `layout()` says where the gong is on the stage.
+  the bath. One mallet for the body and one for the mouse, each with a
+  trail for the swoosh. The body's mallet is not steered: it rests beside
+  the gong, cocks back as an arm winds up and swings to the centre on a hit
+  along an arc, its trail kept for the whole swing so the path shows.
+  `layout()` says where the gong is on the stage. The backdrop is chosen
+  here too (`scene`).
 - `src/gong/useStrikeGestures.js`: arms to strikes (the stroke detector:
   travel, straightness, peak speed, elbow travel and duration over the run
-  since the arm was last at rest; one mallet per arm so two arms play
-  two-handed) and two pointed fingers pinching to resize the gong. The
+  since the arm was last at rest; either arm swings the one mallet, so
+  both arms swung is two hits) and two pointed fingers pinching to resize
+  the gong. The
   thresholds (`STRIKE_SPEED`, `FULL_SPEED` in m/s, `MIN_TRAVEL`,
   `ELBOW_TRAVEL` in m, `STRAIGHT`, `MAX_STROKE_MS`) are at the top.
 - `src/usePoseLandmarker.js`: the body model, loaded only by kiosks that
   ask for it (`pose` prop); the sky does not pay for it. `src/Kiosk.jsx`
-  draws the arms and shoulders under the hands, rings a wrist as its stroke
-  builds, and reports the wrists and elbows (frame and world coordinates)
-  and shoulder width upward each frame.
-- `src/gong/GongStage.jsx`: the canvas. Room and halo, frame, ropes, the gong
-  with its rim, hammer marks, lacquer, boss, ripples, rocking light and
-  sheen, a rim of light that rings with the sound, sparks, the mallets.
+  draws the arms and shoulders under the hands, draws each wrist's path
+  over the last second (white for a wander, yellow as a stroke builds,
+  flaring on a hit), rings the wrist, and reports the wrists and elbows
+  (frame and world coordinates) and shoulder width upward each frame.
+- `src/gong/GongStage.jsx`: the canvas. The backdrop, the flash and the
+  halo, the floor, frame, ropes, the gong with its rim, hammer marks,
+  lacquer, boss, the planets' bands, spots, craters, land, cloud, ring,
+  corona and disc, ripples, rocking light and sheen, a rim of light that
+  rings with the sound, sparks, the mallets.
 - Modes: PLAY (bronze) is the whole of the main screen: stroke an arm to
   strike, and nothing else; step out of view for 3 s for ADJUST (teal),
   where everything that changes the gong lives and nothing strikes: a thumb
   up or down for the next or previous gong, two fingers up for the next
   mallet, two pointed fingers pinching to resize the gong inside its fixed
-  frame, two open palms for the GONG BATH (indigo), a closed fist to go
-  back. In the bath the gong plays itself with slow, soft strikes, every
+  frame, thumb, index and little finger out for the next backdrop, two
+  open palms for the GONG BATH (indigo), a closed fist to go back. In the bath the gong plays itself with slow, soft strikes, every
   fourth louder, the odd pair or roll, and moves on to the next gong and
   mallet every eighth one; an arm joins in, a palm damps, a fist stops it.
   Not a wave anywhere: swinging at the gong twice is a wave.
 
 Without a camera: click or tap the gong, drag across it to swing, scroll to
 resize; Space strikes, `a` opens Adjust, the arrow keys change the gong, `s`
-the mallet, `m` damps, `b` starts the bath, `+` and `-` resize, `Esc` goes
+the mallet, `d` the backdrop, `m` damps, `b` starts the bath, `+` and `-` resize, `Esc` goes
 back. `scripts/check-gong.mjs` drives all of it headless the way
 `check-gestures.mjs` does for the sky.
 

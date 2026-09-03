@@ -5,6 +5,7 @@ import { useGong, layout } from "./useGong.js";
 import { useStrikeGestures } from "./useStrikeGestures.js";
 import { MIRROR } from "../Kiosk.jsx";
 import { GONGS, MALLETS } from "./gongs.js";
+import { SCENES } from "./scenes.js";
 import * as audio from "./audio.js";
 import AppSwitcher from "../AppSwitcher.jsx";
 
@@ -76,9 +77,11 @@ export default function App() {
     window.__gong = {
       ...(window.__gong || {}), // the stage adds its own (pointer)
       strike: (x, y, strength = 0.7) => gong.strike({ x, y, strength, source: "dev" }),
-      state: () => ({ ...gong.selRef.current, gong: GONGS[gong.selRef.current.gong].key, mallet: MALLETS[gong.selRef.current.mallet].key, cm: gong.cm, hits: gong.physRef.current.hits, lastHit: gong.physRef.current.lastHit, ringing: audio.ringing(), audio: audio.unlocked(), mode: modeRef.current }),
+      state: () => ({ ...gong.selRef.current, gong: GONGS[gong.selRef.current.gong].key, mallet: MALLETS[gong.selRef.current.mallet].key, scene: SCENES[gong.selRef.current.scene].key, cm: gong.cm, hits: gong.physRef.current.hits, lastHit: gong.physRef.current.lastHit, ringing: audio.ringing(), audio: audio.unlocked(), mode: modeRef.current }),
       phys: () => ({ ...gong.physRef.current }),
-      mallets: () => Object.fromEntries(Object.entries(gong.malletsRef.current).map(([k, m]) => [k, { ...m, trail: undefined }])),
+      mallets: () => Object.fromEntries(Object.entries(gong.malletsRef.current).map(([k, m]) => [k, { ...m, trail: m.trail?.length || 0 }])),
+      setScene: gong.setScene,
+      counts: () => ({ gongs: GONGS.length, mallets: MALLETS.length, scenes: SCENES.length }),
       swings: () => Object.fromEntries(Object.entries(gestures.armsRef.current).map(([k, f]) => [k, { speed: f.speed, peak: f.peak, travel: f.travel, armed: f.armed }])),
       presence: () => presenceRef.current,
       layout: () => {
@@ -130,6 +133,7 @@ export default function App() {
               <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
             ))}
             <div><dt>Mallet</dt><dd>{gong.mallet.name}</dd></div>
+            <div><dt>Backdrop</dt><dd>{gong.scene.name}</dd></div>
           </dl>
           <p className="note">{gong.gong.note} {gong.mallet.note}</p>
         </article>

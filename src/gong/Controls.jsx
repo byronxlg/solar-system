@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Kiosk, { TWO_PALMS } from "../Kiosk.jsx";
 import { GONGS, MALLETS } from "./gongs.js";
+import { SCENES } from "./scenes.js";
 import { layout } from "./useGong.js";
 
 // Gestures only, no buttons. Playing is the whole of the main screen and
@@ -13,7 +14,8 @@ import { layout } from "./useGong.js";
 //   play    a stroke of the arm strikes the centre. No hand controls.
 //           Nobody in view for AWAY_MS (after somebody was) -> adjust
 //   adjust  Thumb Up/Down (held) -> next/previous gong, Victory (held) -> next mallet,
-//           two pointed fingers pinching -> resize, two Open Palms (held) -> gong bath,
+//           two pointed fingers pinching -> resize, ILoveYou (held) -> next backdrop,
+//           two Open Palms (held) -> gong bath,
 //           Closed Fist (held) -> back to play. No strikes.
 //   bath    the gong plays itself; an arm still strikes; Thumb Up (held) -> next gong,
 //           Open Palm (held) -> damp, Closed Fist (held) -> stop, back to play
@@ -46,10 +48,11 @@ const UI = {
       ["Hold a thumb down", "Previous gong", "Thumb_Down"],
       ["Hold two fingers up", "Next mallet", "Victory"],
       ["Pinch two pointed fingers", "Resize the gong", "resize"],
+      ["Hold thumb, index and little finger out", "Next backdrop", "ILoveYou"],
       ["Hold two open palms", "Gong bath", TWO_PALMS],
       ["Hold a closed fist", "Back to playing", "Closed_Fist"],
     ],
-    gestures: [TWO_PALMS, "Thumb_Up", "Thumb_Down", "Victory", "Closed_Fist"],
+    gestures: [TWO_PALMS, "Thumb_Up", "Thumb_Down", "Victory", "ILoveYou", "Closed_Fist"],
     live: ["Pinch"],
   },
   bath: {
@@ -135,6 +138,7 @@ export default function Controls({ gong, onHands, onPose, presenceRef = null, li
       if (g === "Thumb_Up") return gong.stepGong(1);
       if (g === "Thumb_Down") return gong.stepGong(-1);
       if (g === "Victory") return gong.stepMallet(1);
+      if (g === "ILoveYou") return gong.stepScene(1);
       if (g === TWO_PALMS) return setMode("bath");
       if (g === "Closed_Fist") return setMode("play");
       return;
@@ -194,6 +198,7 @@ export default function Controls({ gong, onHands, onPose, presenceRef = null, li
       if (e.key === "ArrowRight") return act("Thumb_Up", () => gong.stepGong(1));
       if (e.key === "ArrowLeft") return act("Thumb_Down", () => gong.stepGong(-1));
       if (e.key === "s") return act("Victory", () => gong.stepMallet(1));
+      if (e.key === "d") return act("ILoveYou", () => gong.stepScene(1));
       if (e.key === "+" || e.key === "=") return act("resize", () => gong.scaleSize(1.12));
       if (e.key === "-" || e.key === "_") return act("resize", () => gong.scaleSize(1 / 1.12));
       if (e.key === "m") return act("Open_Palm", () => gong.damp());
@@ -211,7 +216,7 @@ export default function Controls({ gong, onHands, onPose, presenceRef = null, li
   const note = mode === "bath"
     ? `Slow, soft strikes with the ${gong.mallet.name.toLowerCase()}. Every eighth one moves to the next gong and mallet.`
     : mode === "adjust"
-      ? `${gong.gong.name}, ${gong.cm} cm, with the ${gong.mallet.name.toLowerCase()}. ${gong.gong.tagline}.`
+      ? `${gong.gong.name}, ${gong.cm} cm, with the ${gong.mallet.name.toLowerCase()}, ${gong.scene.name.toLowerCase().replace(/^the /, "")}. ${gong.gong.tagline}.`
       : `${gong.gong.name}, ${gong.cm} cm, with the ${gong.mallet.name.toLowerCase()}. Hands do nothing here; step out of view for ${AWAY_MS / 1000} s to set it up.`;
 
   return (
@@ -248,7 +253,7 @@ export default function Controls({ gong, onHands, onPose, presenceRef = null, li
         event={event}
       />
 
-      <p className="foot">No camera? Click or tap the gong to strike it, drag across it to swing, scroll to resize. Space strikes, a opens and closes Adjust, the arrow keys change the gong, s the mallet, m damps, b starts the bath, Esc goes back. {MALLETS.length} mallets, {GONGS.length} gongs.</p>
+      <p className="foot">No camera? Click or tap the gong to strike it, drag across it to swing, scroll to resize. Space strikes, a opens and closes Adjust, the arrow keys change the gong, s the mallet, d the backdrop, m damps, b starts the bath, Esc goes back. {GONGS.length} gongs, {MALLETS.length} mallets, {SCENES.length} backdrops.</p>
     </aside>
   );
 }

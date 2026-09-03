@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { GONGS, MALLETS, MIN_SIZE, MAX_SIZE, clamp, diameterCm } from "./gongs.js";
+import { SCENES } from "./scenes.js";
 import * as audio from "./audio.js";
 
 // The gong on the stage: which gong and mallet, how big, and how it is
@@ -26,12 +27,13 @@ const HIT_MS = 380;
 const COCK_R = 0.22;
 
 export function useGong() {
-  const selRef = useRef({ gong: 0, mallet: 0, size: 1, goalSize: 1 });
+  const selRef = useRef({ gong: 0, mallet: 0, scene: 0, size: 1, goalSize: 1 });
   const physRef = useRef({ swing: 0, swingVel: 0, tilt: 0, tiltVel: 0, rockX: 0, rockY: 0, rock: 0, rockVel: 0, shakeX: 0, shakeY: 0, shake: 0, flash: 0, ripples: [], sparks: [], glints: [], hits: 0, lastHit: null, damped: -Infinity });
   const malletsRef = useRef({});
   const sizeRef = useRef({ width: 800, height: 600 }); // the stage's size, kept by the stage
   const [gongIndex, setGongIndex] = useState(0);
   const [malletIndex, setMalletIndex] = useState(0);
+  const [sceneIndex, setSceneIndex] = useState(0);
   const [cm, setCm] = useState(diameterCm(GONGS[0], 1));
   const [hits, setHits] = useState(0);
   const [best, setBest] = useState(0); // the loudest hit so far, 0..1
@@ -53,6 +55,14 @@ export function useGong() {
     setMalletIndex(k);
   }, []);
   const stepMallet = useCallback((dir) => setMallet(selRef.current.mallet + dir), [setMallet]);
+
+  const setScene = useCallback((i) => {
+    const n = SCENES.length;
+    const k = ((i % n) + n) % n;
+    selRef.current.scene = k;
+    setSceneIndex(k);
+  }, []);
+  const stepScene = useCallback((dir) => setScene(selRef.current.scene + dir), [setScene]);
 
   const setSize = useCallback((k) => {
     const s = clamp(k, MIN_SIZE, MAX_SIZE);
@@ -191,8 +201,9 @@ export function useGong() {
         continue;
       }
       if (m.source === "body") {
-        // rest beside the gong on its side, cock back with the arm, fly to
-        // the centre on a hit and ease back
+        // rest beside the gong on its side, cock back with the arm, swing
+        // to the centre on a hit along an arc (the head dips under, like a
+        // real swing) and ease back the same way
         const side = m.side || 1;
         const rx = geo.cx + side * Math.min(geo.R * 1.3, size.width * 0.47 - geo.m * 0.06);
         const ry = geo.cy + geo.R * 0.25;
@@ -201,8 +212,9 @@ export function useGong() {
         m.hit = Math.max(0, m.hit - dt * (1000 / HIT_MS));
         const k = m.hit * m.hit;
         const cock = (m.cock || 0) * (1 - k) * COCK_R * geo.R;
-        const nx = rx + dx * k - (dx / len) * cock;
-        const ny = ry + dy * k - (dy / len) * cock;
+        const dip = Math.sin(k * Math.PI) * geo.R * 0.3; // the arc's bulge, below the straight line
+        const nx = rx + dx * k - (dx / len) * cock + (dy / len) * dip * side;
+        const ny = ry + dy * k - (dy / len) * cock + (-dx / len) * dip * side;
         if (m.x || m.y) {
           m.vx = m.vx + ((nx - m.x) / dt - m.vx) * 0.5;
           m.vy = m.vy + ((ny - m.y) / dt - m.vy) * 0.5;
@@ -210,19 +222,21 @@ export function useGong() {
         m.x = nx;
         m.y = ny;
       }
-      // a short trail of where the head has been, for the swoosh
+      // a trail of where the head has been, for the swoosh; the body's
+      // mallet keeps its whole swing so the path shows
       if (!m.trail) m.trail = [];
       const lastT = m.trail[m.trail.length - 1];
       if (!lastT || Math.hypot(lastT.x - m.x, lastT.y - m.y) > 1.5) m.trail.push({ x: m.x, y: m.y, at: now });
-      while (m.trail.length && now - m.trail[0].at > 160) m.trail.shift();
-      if (m.trail.length > 10) m.trail.shift();
+      const keep = m.source === "body" ? [HIT_MS, 40] : [160, 10];
+      while (m.trail.length && now - m.trail[0].at > keep[0]) m.trail.shift();
+      if (m.trail.length > keep[1]) m.trail.shift();
     }
     return p;
   }, []);
 
   return useMemo(
-    () => ({ selRef, physRef, malletsRef, sizeRef, gongIndex, malletIndex, cm, hits, best, audioOn, gong: GONGS[gongIndex], mallet: MALLETS[malletIndex], setGong, stepGong, setMallet, stepMallet, setSize, scaleSize, holdMallet: mallet, strike, damp, track, wake }),
-    [gongIndex, malletIndex, cm, hits, best, audioOn, setGong, stepGong, setMallet, stepMallet, setSize, scaleSize, mallet, strike, damp, track, wake]
+    () => ({ selRef, physRef, malletsRef, sizeRef, gongIndex, malletIndex, sceneIndex, cm, hits, best, audioOn, gong: GONGS[gongIndex], mallet: MALLETS[malletIndex], scene: SCENES[sceneIndex], setGong, stepGong, setMallet, stepMallet, setScene, stepScene, setSize, scaleSize, holdMallet: mallet, strike, damp, track, wake }),
+    [gongIndex, malletIndex, sceneIndex, cm, hits, best, audioOn, setGong, stepGong, setMallet, stepMallet, setScene, stepScene, setSize, scaleSize, mallet, strike, damp, track, wake]
   );
 }
 

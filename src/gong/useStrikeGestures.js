@@ -5,9 +5,9 @@ import { MIN_SIZE, MAX_SIZE, clamp, diameterCm, GONGS } from "./gongs.js";
 import { layout } from "./useGong.js";
 
 // Turns the body and the hands from the kiosk into strikes and resizes.
-//   each arm (from the body model)              -> a mallet on that side of the gong. A stroke of
-//                                                  the arm strikes the centre; faster is louder. Two
-//                                                  arms, two mallets. Where the hand is does not matter.
+//   either arm (from the body model)            -> the one mallet, resting beside the gong. A stroke
+//                                                  of the arm swings it into the centre; faster is
+//                                                  louder. Where the hand is does not matter.
 //   two Pointing_Up hands (adjust mode only)    -> resize the gong by the distance between the fingertips
 // Nothing strikes in adjust: the hands there are setting the gong up.
 //
@@ -33,6 +33,7 @@ const HISTORY_MS = 900;
 const LOST_MS = 300; // an arm gone this long starts afresh
 const MIN_VIS = 0.5;
 const SCATTER = 0.1; // a hit lands within this of the centre, in radii, so the plate still rocks a little
+export const MALLET = "mallet"; // the one mallet's id in useGong; either arm swings it
 
 export function useStrikeGestures(gong) {
   const { selRef, strike, setSize, holdMallet, malletsRef } = gong;
@@ -44,8 +45,8 @@ export function useStrikeGestures(gong) {
   const drop = useCallback((id) => {
     delete armsRef.current[id];
     delete overlayRef.current.swing[id];
-    const m = malletsRef.current[id];
-    if (m) m.at = -Infinity;
+    // the mallet is put down when the last arm goes
+    if (Object.keys(armsRef.current).length === 0 && malletsRef.current[MALLET]) malletsRef.current[MALLET].at = -Infinity;
   }, [malletsRef]);
 
   const clear = useCallback(() => {
@@ -97,9 +98,11 @@ export function useStrikeGestures(gong) {
     if (duration <= MAX_STROKE_MS && travel >= MIN_TRAVEL && peak >= STRIKE_SPEED && straight >= STRAIGHT && elbowTravel >= ELBOW_TRAVEL) f.stroke = true;
     const moving = speed >= REST_SPEED;
 
-    const m = holdMallet(id, "body");
-    m.side = id === "Left" ? -1 : 1;
-    m.cock = moving ? clamp(travel / MIN_TRAVEL, 0, 1) : 0;
+    // the one mallet, whichever arm is swinging; it cocks with the livelier arm
+    const m = holdMallet(MALLET, "body");
+    m.side = 1;
+    const cock = moving ? clamp(travel / MIN_TRAVEL, 0, 1) : 0;
+    m.cock = m.at === now ? Math.max(m.cock, cock) : cock;
     m.at = now;
 
     // the hit: the stroke arriving, its speed off the peak
@@ -109,7 +112,7 @@ export function useStrikeGestures(gong) {
       const { cx, cy, R } = layout(selRef.current.size, size);
       const a = Math.random() * Math.PI * 2;
       const r = Math.sqrt(Math.random()) * SCATTER * R;
-      const hit = strike({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, strength, source: "body", id });
+      const hit = strike({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, strength, source: "body", id: MALLET });
       if (hit) {
         hitRef.current = { at: now, strength, label: `Hit ${Math.round(strength * 100)}%` };
         m.hit = 1;
@@ -143,9 +146,8 @@ export function useStrikeGestures(gong) {
     }
     for (const id in armsRef.current) if (!arms.includes(id)) drop(id);
     if (arms.length === 0) return null;
-    const who = arms.length > 1 ? "Both mallets" : "Mallet";
     const winding = arms.some((id) => armsRef.current[id].speed >= REST_SPEED);
-    const label = now - hitRef.current.at < 700 ? hitRef.current.label : winding ? "Swinging" : `${who} ready`;
+    const label = now - hitRef.current.at < 700 ? hitRef.current.label : winding ? "Swinging" : "Mallet ready";
     return { live: "strike", label };
   }, [selRef, strike, holdMallet, drop]);
 

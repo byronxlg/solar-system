@@ -89,7 +89,8 @@ const state = () => ev(() => window.__gong.state());
   check("a damp silences it", ringing > 0.03 && damped < ringing * 0.25, `ringing=${ringing.toFixed(3)} damped=${damped.toFixed(3)}`);
   // every gong with the softest and hardest mallet stays under clipping at full strength, two hits stacked
   let worst = 0;
-  for (let g = 0; g < 6; g++) {
+  const nGongs = await ev(() => window.__gong.counts().gongs);
+  for (let g = 0; g < nGongs; g++) {
     for (const mm of [1, 4]) {
       await page.evaluate(([g, mm]) => { window.__gong.setGong(g); window.__gong.setMallet(mm); }, [g, mm]);
       await sleep(30);
@@ -131,11 +132,20 @@ const play = async (frames, left = HANG_L, gap = 33) => {
   await body(HANG_R, HANG_L);
   await sleep(300);
   const ms0 = await ev(() => window.__gong.mallets());
-  check("a body in view holds two mallets", ms0.Right?.source === "body" && ms0.Left?.source === "body", JSON.stringify(Object.keys(ms0)));
-  check("mallets rest either side of the gong", ms0.Left.x < ms0.Right.x && ms0.Left.side === -1 && ms0.Right.side === 1, `left=${ms0.Left.x?.toFixed(0)} right=${ms0.Right.x?.toFixed(0)}`);
+  const geo0 = await ev(() => window.__gong.geo());
+  check("a body in view holds one mallet", ms0.mallet?.source === "body" && Object.values(ms0).filter((m) => m.source === "body").length === 1, JSON.stringify(Object.keys(ms0)));
+  check("the mallet rests beside the gong", ms0.mallet.x > geo0.cx + geo0.R && ms0.mallet.side === 1, `x=${ms0.mallet.x?.toFixed(0)} rim=${(geo0.cx + geo0.R).toFixed(0)}`);
   check("a still body does not strike", (await state()).hits === before);
   await page.screenshot({ path: `${OUT}/g2a-body.png` });
   await play(STROKE);
+  // catch the mallet mid-swing: it flies in from its rest with a trail behind it
+  let flight = null;
+  for (let i = 0; i < 12 && !flight; i++) {
+    const m = await ev(() => window.__gong.mallets().mallet);
+    if (m && m.hit > 0) flight = m;
+    else await sleep(16);
+  }
+  check("the mallet swings in on the hit", !!flight && flight.x < geo0.cx + geo0.R && flight.trail >= 3, flight ? `x=${flight.x.toFixed(0)} hit=${flight.hit.toFixed(2)} trail=${flight.trail}` : "no flight seen");
   await sleep(250);
   const s = await state();
   const sw = await ev(() => window.__gong.swings());
@@ -180,7 +190,7 @@ const play = async (frames, left = HANG_L, gap = 33) => {
   const hud2 = await ev(() => document.querySelectorAll(".sky-hud .pill")[1].textContent);
   await sleep(800);
   const hud3 = await ev(() => document.querySelectorAll(".sky-hud .pill")[1].textContent);
-  check("hud names both mallets once the hit caption clears", hud3 === "Both mallets ready", `${hud2} / ${hud3}`);
+  check("hud names the mallet once the hit caption clears", hud3 === "Mallet ready", `${hud2} / ${hud3}`);
   await page.screenshot({ path: `${OUT}/g2b-two-arms.png` });
   // hands do nothing in Play: a held palm does not damp, held fingers do not open Adjust
   const lay = await ev(() => window.__gong.layout());
@@ -321,8 +331,9 @@ const play = async (frames, left = HANG_L, gap = 33) => {
   await ev(() => window.__kiosk.setMode("play"));
   await sleep(200);
   // every gong and mallet strikes without error
-  for (let g = 0; g < 6; g++) {
-    for (let mm = 0; mm < 5; mm++) {
+  const counts = await ev(() => window.__gong.counts());
+  for (let g = 0; g < counts.gongs; g++) {
+    for (let mm = 0; mm < counts.mallets; mm++) {
       await ev(([g, mm]) => { window.__gong.setGong(g); window.__gong.setMallet(mm); }, [g, mm]).catch(() => {});
       await page.evaluate(([g, mm]) => { window.__gong.setGong(g); window.__gong.setMallet(mm); }, [g, mm]);
       await sleep(30);
@@ -330,7 +341,22 @@ const play = async (frames, left = HANG_L, gap = 33) => {
     }
   }
   await sleep(200);
-  check("every gong and mallet strikes", (await state()).hits >= 30, `hits=${(await state()).hits}`);
+  check("every gong and mallet strikes", (await state()).hits >= counts.gongs * counts.mallets, `hits=${(await state()).hits} of ${counts.gongs}x${counts.mallets}`);
+  // every backdrop draws without error
+  for (let sc = 0; sc < counts.scenes; sc++) {
+    await page.evaluate((sc) => window.__gong.setScene(sc), sc);
+    await sleep(120);
+    await page.screenshot({ path: `${OUT}/g3d-scene-${sc}.png` });
+  }
+  await ev(() => window.__gong.setScene(0));
+  // and every planet, in space
+  await ev(() => window.__gong.setScene(2));
+  for (let g = 0; g < counts.gongs; g++) {
+    await page.evaluate((g) => window.__gong.setGong(g), g);
+    await sleep(120);
+    await page.screenshot({ path: `${OUT}/g3e-gong-${g}.png` });
+  }
+  await ev(() => { window.__gong.setGong(0); window.__gong.setScene(0); });
   await ev(() => { window.__gong.setGong(0); window.__gong.setMallet(0); window.__gong.damp(); });
 }
 
@@ -408,7 +434,9 @@ const play = async (frames, left = HANG_L, gap = 33) => {
   const hUp = (await state()).hits;
   await page.mouse.move(lay.width * 0.6, y - 5);
   await page.mouse.down();
-  await sleep(700); // the press hit, then time for the drag to re-arm
+  await sleep(700); // the press hit
+  // a slow nudge lets the drag re-arm (its speed has to fall first), then the sweep
+  for (let i = 1; i <= 3; i++) { await page.mouse.move(lay.width * 0.6 - i, y); await sleep(120); }
   for (let i = 0; i < 3; i++) { await page.mouse.move(lay.width * (0.6 - i * 0.14), y); }
   await page.mouse.up();
   await sleep(200);
@@ -435,6 +463,15 @@ const play = async (frames, left = HANG_L, gap = 33) => {
   await page.keyboard.press("a");
   await sleep(50);
   check("a opens Adjust", (await ev(() => window.__kiosk.mode)) === "adjust");
+  const sc0 = (await state()).scene;
+  await page.keyboard.press("d");
+  await sleep(50);
+  check("d changes the backdrop", (await state()).scene !== sc0, `${sc0} -> ${(await state()).scene}`);
+  const sc1 = (await state()).scene;
+  await ev(() => window.__kiosk.gesture("ILoveYou"));
+  await sleep(50);
+  check("thumb, index and little finger: next backdrop", (await state()).scene !== sc1, `${sc1} -> ${(await state()).scene}`);
+  await ev(() => window.__gong.setScene(0));
   await page.keyboard.press("Escape");
   await sleep(50);
   check("Esc goes back to Play", (await ev(() => window.__kiosk.mode)) === "play");

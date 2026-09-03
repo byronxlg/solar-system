@@ -38,9 +38,10 @@ zoom, time) act every frame while the hand is in that pose.
 # Gong
 
 Playing is the whole of the main screen and it listens for one thing: a
-stroke of the arm, from the body model. Each arm has a mallet on its side
-of the gong, and a stroke strikes the centre. Where the hand is does not
-matter, and the hands do nothing at all in Play. A stroke is the movement
+stroke of the arm, from the body model. One mallet rests beside the gong;
+a stroke of either arm swings it into the centre along an arc, and the
+kiosk draws the wrist's path as the swing builds. Where the hand is does
+not matter, and the hands do nothing at all in Play. A stroke is the movement
 that would hit a real gong and nothing less: the whole arm drives the wrist
 through a straight run of at least 30 cm inside 0.6 s, reaching 2.2 m/s,
 elbow coming with it (the thresholds are at the top of
@@ -56,7 +57,7 @@ strikes in Adjust. A closed fist is the way back, as in the sky.
 | Control | Action | Built |
 |---|---|---|
 | Swing an arm at it (across, up, or at the camera), a real stroke | Strike the centre as the stroke arrives; faster is louder | yes |
-| Both arms swung | Two mallets, one per side; a hit from each | yes |
+| Either arm, or both | The one mallet; both arms swung is two hits | yes |
 | Any hand gesture | Nothing | yes |
 | Step out of view for 3 s (after being in it) | Adjust | yes |
 
@@ -68,6 +69,7 @@ strikes in Adjust. A closed fist is the way back, as in the sky.
 | Thumb down, hold | Previous gong | yes |
 | Two fingers up (Victory), hold | Next mallet | yes |
 | Two pointed fingers, pinch in or out | Resize the gong (50% to 180% of its base diameter) inside the fixed frame | yes |
+| Thumb, index and little finger out (ILoveYou), hold | Next backdrop (temple hall, mountain top, deep space, beach at dusk, night forest) | yes |
 | Two open palms, hold | Gong bath | yes |
 | Closed fist, hold | Back to Play | yes |
 | Swing an arm | Nothing: no strikes in Adjust | yes |
@@ -88,8 +90,12 @@ Click or tap the gong to strike it (a flick hits harder), drag across it to
 swing (it strikes again where the drag peaks, or where a finger lifts off),
 scroll to resize. The keys act directly in any mode: Space strikes near the
 centre, `a` opens and closes Adjust, the arrow keys change the gong, `s` the
-mallet, `+` and `-` resize, `m` damps, `b` starts the bath, `Esc` goes back
-to Play.
+mallet, `d` the backdrop, `+` and `-` resize, `m` damps, `b` starts the
+bath, `Esc` goes back to Play.
+
+Thirteen gongs: the six alloys (chau, symphonic, wind, Tibetan, iron, moon)
+and seven that are not (Sun, Earth, Mars, Jupiter, Saturn, Neptune, black
+hole), each ringing the way it looks. Five backdrops.
 
 A wave is deliberately not a control here: swinging at the gong twice is a
 wave, and the bath must not start on its own while someone is banging.

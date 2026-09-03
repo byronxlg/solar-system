@@ -64,6 +64,7 @@ export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, cont
   const holdRef = useRef({ since: {}, armed: {}, lastFired: {} });
   const waveRef = useRef(makeWaveTracker());
   const motionRef = useRef({}); // per hand: where the palm was last frame, for its speed
+  const trailRef = useRef({}); // per wrist: where it has been, for the swing path
   const [cameraError, setCameraError] = useState(null);
   const gesture = useGestureRecognizer();
   const body = usePoseLandmarker(pose);
@@ -128,7 +129,7 @@ export default function Kiosk({ mode, color = "#3b7fc4", hint, note = null, cont
       if (MIRROR) ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
       const v = p.viewRef?.current || {};
       // the body goes under the hands: arms and shoulders, wrists ringed by their swing
-      if (poseResult) p.onPose?.(drawBody(ctx, poseResult, v.swing || {}, now), now);
+      if (poseResult) p.onPose?.(drawBody(ctx, poseResult, v.swing || {}, now, trailRef.current), now);
       // "Grab" lights a grabbing hand and draws its drag handle; "Pinch" only the two-finger band
       const grabbing = p.liveGestures.includes("Grab");
       const navigating = grabbing || p.liveGestures.includes("Pinch");
@@ -312,9 +313,13 @@ function drawHands(ctx, result, active, navigating = false, wave = null, now = 0
 const BODY_LINES = [[POSE.lShoulder, POSE.rShoulder], [POSE.lShoulder, POSE.lElbow], [POSE.lElbow, POSE.lWrist], [POSE.rShoulder, POSE.rElbow], [POSE.rElbow, POSE.rWrist], [POSE.lShoulder, POSE.lHip], [POSE.rShoulder, POSE.rHip], [POSE.lHip, POSE.rHip]];
 const BODY_VIS = 0.5;
 const BODY_LINE = "rgba(255,255,255,0.45)";
-function drawBody(ctx, result, swing, now) {
+const TRAIL_MS = 900;
+function drawBody(ctx, result, swing, now, trails = {}) {
   const lm = result.landmarks?.[0];
-  if (!lm) return null;
+  if (!lm) {
+    for (const k in trails) delete trails[k];
+    return null;
+  }
   const { width, height } = ctx.canvas;
   const vis = (i) => lm[i].visibility ?? 1;
   const at = (i) => ({ x: lm[i].x * width, y: lm[i].y * height });
@@ -339,6 +344,24 @@ function drawBody(ctx, result, swing, now) {
     const sw = swing[side] || {};
     const k = Math.max(0, Math.min(1, sw.k || 0));
     const hit = sw.hitAt ? Math.max(0, 1 - (now - sw.hitAt) / 300) : 0;
+    // the path of the swing: where the wrist has been over the last
+    // TRAIL_MS, tapered toward the past, white for a wander and yellow
+    // as a stroke builds; it flares on a hit
+    const trail = trails[side] || (trails[side] = []);
+    trail.push({ x: w.x, y: w.y, t: now });
+    while (trail.length && now - trail[0].t > TRAIL_MS) trail.shift();
+    if (trail.length > 2) {
+      const hot = Math.max(k, hit);
+      for (let j = 1; j < trail.length; j++) {
+        const u = j / (trail.length - 1);
+        ctx.strokeStyle = hot > 0.3 ? `rgba(245,197,66,${0.15 + 0.7 * u * hot})` : `rgba(255,255,255,${0.1 + 0.4 * u})`;
+        ctx.lineWidth = lw * (0.6 + 2.4 * u * (0.5 + hot));
+        ctx.beginPath();
+        ctx.moveTo(trail[j - 1].x, trail[j - 1].y);
+        ctx.lineTo(trail[j].x, trail[j].y);
+        ctx.stroke();
+      }
+    }
     const r = Math.max(5, width / 90) * (1 + k * 1.6 + hit * 1.2);
     ctx.fillStyle = k > 0.3 || hit > 0 ? ACTIVE : IDLE;
     ctx.beginPath();
