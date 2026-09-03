@@ -1,10 +1,13 @@
 # solar-system
 
-A solar system you fly through with your hands. Vite + React, with hand
-tracking running locally in the browser (MediaPipe Gesture Recognizer). No
-buttons, no server: a static site.
+A solar system you fly through with your hands, and a gong you bang with
+them. Vite + React, with hand tracking running locally in the browser
+(MediaPipe Gesture Recognizer). No buttons, no server: a static site with
+two apps that share one kiosk.
 
-Live: https://byronxlg.github.io/solar-system/
+Live: https://byronxlg.github.io/solar-system/ (the sky) and
+https://byronxlg.github.io/solar-system/gong/ (the gong). A switcher top-right
+of each links to the other.
 
 ```sh
 npm install
@@ -80,10 +83,52 @@ The controls table is in [docs/control-system.md](docs/control-system.md).
 Without a camera the arrow keys stand in for thumb up and down, `n` for two
 palms, `t` for a wave and `Esc` for a fist (`KEYS` in `src/Controls.jsx`).
 
+## Gong
+
+`/gong/` (`gong/index.html`, `src/gong/`). A gong hangs in a frame on the
+left; the kiosk on the right is the same one the sky uses. Any hand that is
+not in a hold pose holds the mallet: the head follows the palm (mirrored,
+amplified so the edge of the frame reaches the edge of the stage) and a fast
+swing over the plate strikes it where the swing peaks. Faster is louder, and
+pushing the hand at the camera counts as swinging at the gong. The rim rings
+brighter than the centre, a bigger gong rings lower and longer.
+
+- `src/gong/gongs.js`: six gongs (chau, symphonic, wind, Tibetan, iron,
+  moon) and five mallets (wool, felt, rubber, wood, steel) as pure data:
+  colours, hammer-mark density, fundamental, partial ratios, decay and
+  shimmer for a gong; hardness, contact noise and head size for a mallet.
+  `strikeSpectrum` turns a hit (where, how hard, which mallet) into
+  per-partial gains.
+- `src/gong/audio.js`: Web Audio synthesis, no samples. Each strike is a
+  bank of detuned sine pairs at the gong's partial ratios with their own
+  decays, a filtered noise burst for the mallet's contact, a delayed swell of
+  the upper partials (the bloom), all through a synthetic hall and a
+  compressor. The context starts on the first click or key; the page says
+  so until it has.
+- `src/gong/useGong.js`: selection (gong, mallet, size), physics (pendulum
+  swing, push-back, flash, ripples, sparks) and `strike()`, which every
+  source goes through: hands, mouse, touch, keys and the bath. `layout()`
+  says where the gong is on the stage.
+- `src/gong/useStrikeGestures.js`: hands to mallet and strikes; two pointed
+  fingers pinching resize the gong.
+- `src/gong/GongStage.jsx`: the canvas. Room, frame, ropes, the gong with its
+  rim, hammer marks, lacquer, boss, ripples and sheen, sparks, the mallet.
+- Modes: PLAY (bronze) and GONG BATH (indigo), where the gong plays itself
+  with slow, soft strikes and moves on to the next gong every eighth one.
+  Hold a thumb up or down for the next or previous gong, two fingers up for
+  the next mallet, an open palm to damp it, wave for the bath.
+
+Without a camera: click or tap the gong, scroll to resize; Space strikes,
+the arrow keys change the gong, `s` the mallet, `m` damps, `b` starts the
+bath, `+` and `-` resize. `scripts/check-gong.mjs` drives all of it headless
+the way `check-gestures.mjs` does for the sky.
+
 ## Deploying
 
 Static build to GitHub Pages: `.github/workflows/deploy.yml` builds on every
 push to `main` and publishes `dist/`. `vite.config.js` sets `base` to
-`/solar-system/` to match the project path. MediaPipe's wasm runtime is copied
+`/solar-system/` to match the project path and lists both pages
+(`index.html` and `gong/index.html`) as build inputs, so the gong lands at
+`dist/gong/`. MediaPipe's wasm runtime is copied
 from `node_modules` into `public/wasm` before dev and build
 (`scripts/copy-wasm.mjs`); the gesture model is committed in `public/models`.

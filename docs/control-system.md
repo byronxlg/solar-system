@@ -34,3 +34,35 @@ zoom, time) act every frame while the hand is in that pose.
 | (wait) | Next stop every 9 s; after Neptune, back to Main view | yes |
 | Thumb up, hold | Skip ahead | yes |
 | Closed fist, hold | Stop the tour, back to Main view | yes |
+
+# Gong
+
+Any hand not in a hold pose holds the mallet. Held gestures fill a pill and
+fire once; strikes and resizing act every frame.
+
+## Play
+
+| Control | Action | Built |
+|---|---|---|
+| Swing a hand over the gong (or push it at the camera) | Strike where the swing peaks; faster is louder, the rim is brighter | yes |
+| Thumb up, hold | Next gong | yes |
+| Thumb down, hold | Previous gong | yes |
+| Two fingers up (Victory), hold | Next mallet | yes |
+| Two pointed fingers, pinch in or out | Resize the gong (50% to 220% of its base diameter) | yes |
+| Open palm, hold | Damp the gong (everything ringing fades out) | yes |
+| Wave a hand | Gong bath | yes |
+
+## Gong bath
+
+| Control | Action | Built |
+|---|---|---|
+| (wait) | A soft strike every 2 to 4 s, sometimes doubled; every eighth moves to the next gong | yes |
+| Swing a hand | Join in | yes |
+| Thumb up, hold | Next gong | yes |
+| Open palm, hold | Stop the bath, back to Play | yes |
+
+## Without a camera
+
+Click or tap the gong to strike it (a flick hits harder), scroll to resize.
+Space strikes near the centre, the arrow keys change the gong, `s` the
+mallet, `m` damps, `b` starts the bath, `Esc` stops it, `+` and `-` resize.
