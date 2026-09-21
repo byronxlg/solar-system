@@ -1,7 +1,7 @@
 name: Deploy to GitHub Pages
 
 # Static build of the site on every push to main, published to
-# https://<owner>.github.io/solar-system/. The deploy is the only infra
+# https://byronxlg.com/solar-system/. The deploy is the only infra
 # change and it happens here, never from a local machine.
 on:
   push:

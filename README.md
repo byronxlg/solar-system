@@ -5,9 +5,13 @@ them. Vite + React, with hand tracking running locally in the browser
 (MediaPipe Gesture Recognizer). No buttons, no server: a static site with
 two apps that share one kiosk.
 
-Live: https://byronxlg.github.io/solar-system/ (the sky) and
-https://byronxlg.github.io/solar-system/gong/ (the gong). A switcher top-right
+Live: https://byronxlg.com/solar-system/ (the sky) and
+https://byronxlg.com/solar-system/gong/ (the gong). A switcher top-right
 of each links to the other.
+
+[![solar-system in 20 seconds](https://byronxlg.com/solar-system/assets/brag.jpg)](https://byronxlg.com/solar-system/assets/brag.mp4)
+
+<sub>solar-system in 20 seconds: point at Jupiter, fly there, then the gong. Click for the video.</sub>
 
 ```sh
 npm install
@@ -183,7 +187,7 @@ back. `scripts/check-gong.mjs` drives all of it headless the way
 
 ## Deploying
 
-Static build to GitHub Pages: `.github/workflows/deploy.yml` builds on every
+Operational docs: [runbook/](runbook/README.md). Static build to GitHub Pages: `.github/workflows/deploy.yml` builds on every
 push to `main` and publishes `dist/`. `vite.config.js` sets `base` to
 `/solar-system/` to match the project path and lists both pages
 (`index.html` and `gong/index.html`) as build inputs, so the gong lands at
