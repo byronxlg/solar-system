@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<title>solar-system - brag</title>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="assets/audio-rms.js"></script>
+<style>
+  :root {
+    --paper: #f4efe6; --card: #fbf8f2; --ink: #2b2f3a; --ink-2: #5f6359; --line: rgba(43,47,58,0.12);
+    --space: #0b0e1a; --sea: #3b7fc4; --bronze: #b07a3c; --gold: #f5c542;
+    --kiosk: "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+  }
+  body { margin: 0; background: var(--space); color: #fff; font-family: var(--kiosk); }
+  #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--space); }
+  .clip { position: absolute; inset: 0; box-sizing: border-box; }
+  #stars { position: absolute; inset: 0; pointer-events: none; }
+  #glow { position: absolute; inset: 0; pointer-events: none; opacity: 0.5; background: radial-gradient(ellipse at 38% 50%, rgba(255,209,102,0.10), rgba(11,14,26,0) 55%); }
+
+  /* scene 1: hook */
+  #s1 { display: flex; align-items: center; justify-content: center; padding: 0 220px; }
+  #hook { margin: 0; font-size: 70px; font-weight: 600; line-height: 1.3; letter-spacing: -1px; text-align: center; max-width: 1400px; color: #fff; }
+  #hook .y { color: var(--gold); }
+
+  /* scene 2: the app */
+  #s2 { display: grid; grid-template-columns: 1fr 520px; }
+  #s2 .left { position: relative; overflow: hidden; }
+  #sky { position: absolute; inset: 0; width: 100%; height: 100%; transform-origin: 62% 50%; }
+  #sky text { font-family: var(--kiosk); font-size: 15px; font-weight: 600; fill: rgba(236,240,255,0.85); }
+  .hud { position: absolute; top: 14px; left: 16px; display: flex; gap: 8px; }
+  .pill { font: 700 15px var(--kiosk); letter-spacing: 0.02em; color: #fff; background: rgba(11,14,26,0.62); border: 1px solid rgba(255,255,255,0.14); padding: 7px 13px; border-radius: 999px; }
+  .pill.time { color: #0b0e1a; background: var(--gold); border-color: var(--gold); }
+  .apps { position: absolute; top: 14px; right: 16px; display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: rgba(11,14,26,0.62); border: 1px solid rgba(255,255,255,0.14); }
+  .apps span { font: 600 14px var(--kiosk); color: rgba(236,240,255,0.7); padding: 5px 11px; border-radius: 999px; }
+  .apps span.current { color: #0b0e1a; background: rgba(236,240,255,0.9); }
+  #card { position: absolute; left: 16px; bottom: 16px; width: 380px; padding: 18px 20px 16px; border-radius: 16px; background: rgba(244,239,230,0.96); color: var(--ink); opacity: 0; }
+  #card header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  #card .swatch { width: 36px; height: 36px; border-radius: 50%; background: radial-gradient(circle at 32% 30%, #fff9 0, #d9a877 45%, #57432f 100%); box-shadow: 0 0 0 3px rgba(217,168,119,0.3); }
+  #card h2 { margin: 0; font-size: 24px; line-height: 1.1; }
+  #card .tagline { margin: 2px 0 0; color: var(--ink-2); font-size: 15px; }
+  #card dl { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin: 0; font-size: 15px; }
+  #card dt { color: var(--ink-2); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+  #card dd { margin: 0; font-weight: 600; }
+  #card .note { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.35; }
+  .panel { --accent: var(--sea); background: var(--paper); color: var(--ink); border-left: 1px solid var(--line); padding: 24px 26px; display: flex; flex-direction: column; gap: 20px; }
+  .mode { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 19px; font-weight: 600; }
+  .mode .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(59,127,196,0.22); }
+  .viewfinder { aspect-ratio: 4 / 3; border-radius: 18px; background: #1d2129; box-shadow: 0 0 0 3px var(--accent); position: relative; overflow: hidden; }
+  .viewfinder .cap { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 6px 12px; border-radius: 999px; background: rgba(11,14,26,0.72); color: #fff; font-size: 15px; font-weight: 600; white-space: nowrap; opacity: 0; }
+  .hint { margin: 0; font-size: 27px; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; }
+  .controls { display: grid; grid-template-columns: max-content 1fr; gap: 12px 16px; align-items: center; margin: 0; font-size: 17px; }
+  .controls dt { margin: 0; } .controls dd { margin: 0; color: var(--ink-2); }
+  .key { display: inline-block; padding: 5px 10px 6px; border-radius: 8px; font-size: 15px; font-weight: 600; white-space: nowrap; color: #2f63a0; background: #e5ebf1; border: 1px solid rgba(59,127,196,0.45); box-shadow: 0 1.5px 0 rgba(59,127,196,0.45); }
+  #row-point.fired .key { background: var(--gold); border-color: #e0a92a; color: var(--ink); box-shadow: 0 1.5px 0 #c9931f; }
+  #row-point.fired dd { color: var(--ink); font-weight: 600; }
+  #ret { opacity: 0; }
+
+  /* scene 3: gong */
+  #s3 { display: grid; grid-template-columns: 1fr 520px; }
+  #s3 .left { position: relative; background: radial-gradient(ellipse at 50% 60%, #2a1c12 0, #15100c 55%, #0b0806 100%); display: flex; align-items: center; justify-content: center; }
+  #gong { position: relative; width: 560px; height: 560px; border-radius: 50%; background: radial-gradient(circle at 50% 50%, #e0b26f 0 60px, #b07a3c 61px 200px, #7a5530 201px 250px, #4a2e14 251px 280px); box-shadow: 0 0 0 6px #3a2411, 0 40px 120px rgba(0,0,0,0.6); }
+  #halo { position: absolute; inset: -140px; border-radius: 50%; background: radial-gradient(circle, rgba(245,197,66,0.35) 0, rgba(245,197,66,0) 60%); opacity: 0; }
+  #frame { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); width: 820px; height: 14px; border-radius: 7px; background: #7a5530; }
+  #s3 .panel { --accent: var(--bronze); }
+  #s3 .mode .dot { background: var(--bronze); box-shadow: 0 0 0 4px rgba(176,122,60,0.22); }
+  #s3 .viewfinder { box-shadow: 0 0 0 3px var(--bronze); }
+  #s3 .key { color: #7a5530; background: #efe4d4; border-color: rgba(176,122,60,0.45); box-shadow: 0 1.5px 0 rgba(176,122,60,0.45); }
+  #s3 .panel > *, #s3 .left > * { opacity: 0; }
+
+  /* scene 4: outro */
+  #s4 { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; }
+  #mark { font-size: 110px; font-weight: 700; letter-spacing: -3px; margin: 0; opacity: 0; color: #fff; }
+  #mark .y { color: var(--gold); }
+  #tag { font-size: 36px; font-weight: 500; margin: 0; opacity: 0; color: rgba(236,240,255,0.85); text-align: center; }
+  #url { font-size: 30px; margin: 22px 0 0; opacity: 0; color: var(--gold); font-weight: 600; letter-spacing: 0.5px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="solar-system-brag" data-start="0" data-width="1920" data-height="1080" data-duration="20" data-fps="30">
+  <svg id="stars" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice"></svg>
+  <div id="glow"></div>
+
+  <section id="s1" class="clip" data-start="0" data-duration="3.2" data-track-index="1">
+    <h1 id="hook">A solar system you fly through with <span class="y">your hands</span>, and a gong you bang with them.</h1>
+  </section>
+
+  <section id="s2" class="clip" data-start="3.2" data-duration="9.8" data-track-index="1">
+    <div class="left">
+      <svg id="sky" data-layout-allow-overflow viewBox="0 0 1400 1080" preserveAspectRatio="xMidYMid slice"></svg>
+      <div class="hud"><span class="pill">Solar system</span><span class="pill time">1x</span></div>
+      <div class="apps"><span class="current">Solar system</span><span>Gong</span></div>
+      <div id="card">
+        <header><span class="swatch"></span><div><h2>Jupiter</h2><p class="tagline">The giant</p></div></header>
+        <dl><div><dt>Diameter</dt><dd>139,820 km</dd></div><div><dt>Year</dt><dd>4,332.6 days</dd></div></dl>
+        <p class="note">The Great Red Spot is a storm wider than Earth that has raged for centuries.</p>
+      </div>
+    </div>
+    <div class="panel">
+      <p class="mode"><span class="dot"></span>Main view</p>
+      <div class="viewfinder"><span id="cap" class="cap">Pointing_Up</span></div>
+      <p class="hint">Show a hand to the camera</p>
+      <dl class="controls">
+        <div id="row-point"><dt><span class="key">Point at a planet, hold</span></dt><dd>Fly there</dd></div>
+        <div><dt><span class="key">Hold a thumb up</span></dt><dd>Fly to the next planet</dd></div>
+        <div><dt><span class="key">Hold two open palms</span></dt><dd>Navigate freely</dd></div>
+        <div><dt><span class="key">Wave a hand</span></dt><dd>Take the tour</dd></div>
+        <div><dt><span class="key">Hold a fist</span></dt><dd>Back to the whole system</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section id="s3" class="clip" data-start="13" data-duration="3.6" data-track-index="1">
+    <div class="left">
+      <div id="frame"></div>
+      <div id="gong"><div id="halo"></div></div>
+      <div class="apps"><span>Solar system</span><span class="current">Gong</span></div>
+    </div>
+    <div class="panel">
+      <p class="mode"><span class="dot"></span>Play</p>
+      <div class="viewfinder"></div>
+      <p class="hint">Strike the gong with a full swing of the arm</p>
+      <dl class="controls">
+        <div><dt><span class="key">Stroke an arm</span></dt><dd>Strike. Faster is louder</dd></div>
+        <div><dt><span class="key">Step out of view for 3 s</span></dt><dd>Adjust: gongs, mallets, backdrops</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section id="s4" class="clip" data-start="16.6" data-duration="3.4" data-track-index="1">
+    <p id="mark">solar<span class="y">-</span>system</p>
+    <p id="tag">No buttons, no server: a static site with two apps that share one kiosk.</p>
+    <p id="url">byronxlg.com/solar-system/</p>
+  </section>
+
+  <audio id="music" data-start="0" data-duration="20" data-track-index="10" data-volume="0.30" src="assets/music/bed.mp3"></audio>
+  <audio id="sfx-fly" data-start="8.73" data-duration="0.2" data-track-index="11" data-volume="0.45" src="assets/sfx/impact/impactSoft_medium_001.ogg"></audio>
+  <audio id="sfx-gong" data-start="14.20" data-duration="0.12" data-track-index="12" data-volume="0.55" src="assets/sfx/interface/bong_001.ogg"></audio>
+  <audio id="sfx-mark" data-start="16.93" data-duration="0.15" data-track-index="13" data-volume="0.45" src="assets/sfx/interface/bong_001.ogg"></audio>
+</div>
+
+<script>
+  // Seeded stars and the sky, built once so every frame is deterministic.
+  (function () {
+    var seed = 7; function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+    var ns = "http://www.w3.org/2000/svg";
+    var stars = document.getElementById("stars");
+    for (var i = 0; i < 260; i++) {
+      var c = document.createElementNS(ns, "circle");
+      c.setAttribute("cx", (rnd() * 1920).toFixed(1)); c.setAttribute("cy", (rnd() * 1080).toFixed(1));
+      c.setAttribute("r", (0.6 + rnd() * 1.4).toFixed(2)); c.setAttribute("fill", "#b4c4f0"); c.setAttribute("opacity", (0.25 + rnd() * 0.6).toFixed(2));
+      stars.appendChild(c);
+    }
+    // src/solar.js: orbit radii square-root compressed, drawn sizes log compressed, real colours.
+    var bodies = [
+      ["Mercury", 0.387, "#b5aca3", 3.2, 252], ["Venus", 0.723, "#e8c98a", 4.5, 182], ["Earth", 1, "#4f8fd6", 4.6, 100],
+      ["Mars", 1.524, "#d2683f", 3.8, 355], ["Jupiter", 5.203, "#d9a877", 10, 34], ["Saturn", 9.537, "#e6cf9a", 9.2, 50],
+      ["Uranus", 19.19, "#9fd7dd", 7, 313], ["Neptune", 30.07, "#4b6fd8", 6.8, 305]
+    ];
+    var sky = document.getElementById("sky"), cx = 700, cy = 540, K = 95;
+    function el(t, a) { var e = document.createElementNS(ns, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+    var orbits = el("g", { id: "orbits" }), planets = el("g", { id: "planets" });
+    var sun = el("circle", { cx: cx, cy: cy, r: 14, fill: "#ffd166", id: "sun" });
+    sky.appendChild(el("circle", { cx: cx, cy: cy, r: 40, fill: "#ffd166", opacity: 0.12 }));
+    sky.appendChild(sun); sky.appendChild(orbits); sky.appendChild(planets);
+    sky.appendChild(el("text", { x: cx + 20, y: cy + 5, "class": "lbl" })).textContent = "Sun";
+    bodies.forEach(function (b, i) {
+      var r = K * Math.sqrt(b[1]), a = b[4] * Math.PI / 180, x = cx + r * Math.cos(a), y = cy - r * Math.sin(a);
+      orbits.appendChild(el("circle", { cx: cx, cy: cy, r: r.toFixed(1), fill: "none", stroke: "#b4c4f0", "stroke-opacity": 0.28, "stroke-width": 1, "class": "orb" }));
+      var g = el("g", { "class": "pl", id: "p" + i });
+      if (b[0] === "Saturn") g.appendChild(el("ellipse", { cx: x, cy: y, rx: 20, ry: 6, fill: "none", stroke: "#e6cf9a", "stroke-opacity": 0.7, "stroke-width": 2, transform: "rotate(-20 " + x + " " + y + ")" }));
+      g.appendChild(el("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: b[3], fill: b[2] }));
+      var t = el("text", { x: (x + b[3] + 7).toFixed(1), y: (y + 5).toFixed(1) }); t.textContent = b[0]; g.appendChild(t);
+      planets.appendChild(g);
+      if (b[0] === "Jupiter") {
+        var ret = el("g", { id: "ret", transform: "translate(" + x.toFixed(1) + " " + y.toFixed(1) + ")" });
+        ret.appendChild(el("circle", { r: 26, fill: "none", stroke: "#fff", "stroke-opacity": 0.5, "stroke-width": 2 }));
+        ret.appendChild(el("circle", { r: 26, fill: "none", stroke: "#f5c542", "stroke-width": 3, "stroke-dasharray": "163.4", "stroke-dashoffset": "163.4", transform: "rotate(-90)", id: "ring" }));
+        sky.appendChild(ret);
+        window.__jup = { x: x, y: y };
+      }
+    });
+    sky.style.transformOrigin = (window.__jup.x / 1400 * 100).toFixed(2) + "% " + (window.__jup.y / 1080 * 100).toFixed(2) + "%";
+  })();
+
+  document.fonts.ready.then(function () {
+    var tl = gsap.timeline({ paused: true });
+    function up(sel, at, d) { tl.fromTo(sel, { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: d || 0.5, ease: "power2.out" }, at); }
+
+    // Scene 1: hook (0 - 3.2). 16 words, settled 0.8 to 2.9.
+    tl.fromTo("#hook", { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power2.out" }, 0.2);
+    tl.to("#hook", { opacity: 0, duration: 0.3, ease: "power1.in" }, 2.85);
+
+    // Scene 2: the app (3.2 - 13). beat-locked: 3.55 panel lands; planets on the beat grid.
+    tl.fromTo(".panel", { x: 40, opacity: 0 }, { x: 0, opacity: 1, duration: 0.6, ease: "power2.out" }, 3.55);
+    tl.fromTo("#sun", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 3.55);
+    tl.fromTo("#orbits .orb", { opacity: 0 }, { opacity: 1, duration: 0.4, stagger: 0.12 }, 3.7);
+    tl.fromTo("#planets .pl", { opacity: 0 }, { opacity: 1, duration: 0.3, stagger: 0.27 }, 4.10);
+    tl.fromTo(".hud, .apps", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 4.3);
+    // point at Jupiter: reticle, the ring fills for about a second, then fly there on 8.73
+    tl.to("#ret", { opacity: 1, duration: 0.2 }, 7.35);
+    tl.to("#cap", { opacity: 1, duration: 0.2 }, 7.35);
+    tl.to("#ring", { strokeDashoffset: 0, duration: 1.3, ease: "none" }, 7.4);
+    tl.to("#sky", { scale: 3.2, duration: 1.4, ease: "power2.inOut" }, 8.73);
+    tl.to("#ret", { opacity: 0, duration: 0.3 }, 8.73);
+    tl.to("#planets text, #sky > text", { opacity: 0, duration: 0.3 }, 8.73);
+    tl.call(function () { document.getElementById("row-point").classList.add("fired"); }, [], 8.73);
+    tl.call(function () { document.getElementById("row-point").classList.remove("fired"); }, [], 8.72);
+    tl.fromTo("#card", { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power2.out" }, 9.29);
+    tl.to("#s2", { opacity: 0, duration: 0.35, ease: "power1.in" }, 12.6);
+
+    // Scene 3: gong (13 - 16.6). beat-locked: 13.11 stage; 14.20 the strike.
+    tl.fromTo("#s3 .left > *", { opacity: 0 }, { opacity: 1, duration: 0.5, stagger: 0.1 }, 13.11);
+    tl.fromTo("#s3 .panel > *", { y: 10, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, stagger: 0.12, ease: "power2.out" }, 13.3);
+    tl.fromTo("#gong", { scale: 1 }, { scale: 1.06, duration: 0.12, ease: "power2.out" }, 14.20);
+    tl.to("#gong", { scale: 1, duration: 1.4, ease: "elastic.out(1, 0.35)" }, 14.32);
+    tl.fromTo("#halo", { opacity: 0 }, { opacity: 1, duration: 0.1 }, 14.20);
+    tl.to("#halo", { opacity: 0, duration: 1.8, ease: "power2.out" }, 14.3);
+    tl.to("#s3", { opacity: 0, duration: 0.3, ease: "power1.in" }, 16.25);
+
+    // Scene 4: outro (16.6 - 20). beat-locked: 16.93 wordmark.
+    tl.fromTo("#mark", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power2.out" }, 16.93);
+    up("#tag", 17.47); up("#url", 18.01);
+
+    // Audio-reactive: RMS breathes the sun glow. Pre-extracted, sampled per frame.
+    var glow = document.getElementById("glow");
+    function draw(rms) { glow.style.opacity = (0.35 + Math.min(1, rms * 1.4) * 0.5).toFixed(3); }
+    for (var f = 0; f < AUDIO_RMS.length; f++) {
+      tl.call((function (v) { return function () { draw(v); }; })(AUDIO_RMS[f]), [], f / 30);
+    }
+
+    window.__timelines["solar-system-brag"] = tl;
+    if (window.__hfForceTimelineRebind) window.__hfForceTimelineRebind();
+  });
+</script>
+</body>
+</html>
